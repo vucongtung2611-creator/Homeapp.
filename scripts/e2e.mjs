@@ -40,10 +40,15 @@ try {
     const page = await context.newPage();
     page.on('pageerror', (e) => problems.push(`[en pageerror] ${e.message}`));
     await page.goto(BASE);
-    await page.getByRole('heading', { name: 'A home for everyone at home' }).waitFor();
+    await page.getByRole('heading', { name: 'MATE' }).waitFor();
+    await page.getByText('Your everyday companion at home.').waitFor();
     await expect((await page.locator('html').getAttribute('lang')) === 'en', 'html lang=en');
     const offered = await page.locator('.lang-switch option').allTextContents();
-    await expect(offered.join('|') === 'English|Tiếng Việt', `only finished languages offered (got ${offered})`);
+    await expect(offered.join('|') === 'English|Tiếng Việt|Français|Deutsch|Nederlands', `all five languages offered (got ${offered})`);
+    // Tom greets with a wave; animations run.
+    await expect((await page.locator('.mascot .figure').getAttribute('class')).includes('mood-wave'), 'Tom waves on the welcome screen');
+    const anim = await page.locator('.mascot .figure-body').evaluate((el) => getComputedStyle(el).animationName);
+    await expect(anim !== 'none', `mascot animates (${anim})`);
     await shot(page, '00-welcome-en');
     const fonts = await page.evaluate(async () => {
       await document.fonts.ready;
@@ -53,21 +58,32 @@ try {
     });
     await expect(fonts.ok && fonts.family.startsWith('Inter'), `Inter covers vi/fr/de glyphs (${JSON.stringify(fonts)})`);
     await page.locator('.lang-switch select').selectOption('vi');
-    await page.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
+    await page.getByText('Người bạn đồng hành của cả nhà, mỗi ngày.').waitFor();
     await page.reload();
-    await page.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
+    await page.getByText('Người bạn đồng hành của cả nhà, mỗi ngày.').waitFor();
     await expect((await page.locator('html').getAttribute('lang')) === 'vi', 'html lang=vi after reload');
     await page.locator('.lang-switch select').selectOption('en');
-    await page.getByRole('heading', { name: 'A home for everyone at home' }).waitFor();
+    await page.getByText('Your everyday companion at home.').waitFor();
     await context.close();
-    step('English by default; switching to Vietnamese works and is remembered; Inter has vi/fr/de glyphs');
+    step('MATE welcome; English by default; 5 languages; switching is remembered; Inter has vi/fr/de glyphs; Tom waves');
+  }
+  {
+    // Reduced motion: the OS setting switches every animation off.
+    const context = await browser.newContext({ ...phone, locale: 'en-US', reducedMotion: 'reduce' });
+    const page = await context.newPage();
+    await page.goto(BASE);
+    await page.getByRole('heading', { name: 'MATE' }).waitFor();
+    const anim = await page.locator('.mascot .figure-body').evaluate((el) => getComputedStyle(el).animationName);
+    await expect(anim === 'none', `no animation with reduced motion (${anim})`);
+    await context.close();
+    step('prefers-reduced-motion turns the character animations off');
   }
 
   // ── 1. Linh signs up and creates a home ──────────────────────────────
   const linh = await person('linh');
   let p = linh.page;
   await p.goto(BASE);
-  await p.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
+  await p.getByRole('heading', { name: 'MATE' }).waitFor();
   await shot(p, '01-welcome');
   step('welcome screen');
 
@@ -264,8 +280,48 @@ try {
 
   await q.getByRole('button', { name: 'Cài đặt nhà' }).click();
   await q.getByRole('button', { name: 'Đăng xuất' }).click();
-  await q.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
+  await q.getByRole('heading', { name: 'MATE' }).waitFor();
   step('sign out');
+
+  // ── 9. French, German, Dutch: text, sample content, money and dates ──
+  const norm = (x) => x.replace(/[\u00a0\u202f]/g, ' ').trim();
+  for (const [locale, tabBills, wifi, region] of [
+    ['fr', 'Factures', 'Wi-Fi de la maison', 'fr-FR'],
+    ['de', 'Rechnungen', 'WLAN zu Hause', 'de-DE'],
+    ['nl', 'Rekeningen', 'Wifi thuis', 'nl-NL'],
+  ]) {
+    const ctx = await browser.newContext({ ...phone, locale: region, timezoneId: 'Europe/Amsterdam' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => problems.push(`[${locale} pageerror] ${e.message}`));
+    page.on('console', (m) => m.type() === 'error' && problems.push(`[${locale} console] ${m.text()}`));
+    await page.goto(`${BASE}/signup`);
+    await expect((await page.locator('html').getAttribute('lang')) === locale, `${locale} detected from the browser`);
+    await page.locator('input[name=name]').fill('Tom');
+    await page.locator('input[name=email]').fill(`tom-${locale}-${run}@example.com`);
+    await page.locator('input[name=password]').fill('long enough pw');
+    await page.locator('button[type=submit]').click();
+    await page.locator('input[name=homeName]').fill('Amsterdam');
+    await expect((await page.locator('select[name=currency]').inputValue()) === 'EUR', `${locale}: euro suggested`);
+    await page.locator('form button[type=submit]').click();
+    await page.locator('.system').first().waitFor();
+    await page.getByRole('link', { name: tabBills }).click();
+    const amount = norm(await page.locator('.list-item .amount').first().textContent());
+    const expected = norm(new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(142.5));
+    await expect(amount === expected, `${locale}: money ${amount} = ${expected}`);
+    await page.locator('.list-item').first().click();
+    const due = await page.locator('.sheet .card .row').first().locator('span').last().textContent();
+    const dueIso = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
+    const [y, m, d] = dueIso.split('-').map(Number);
+    const dueExpected = norm(new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(y, m - 1, d)));
+    await expect(norm(due) === dueExpected, `${locale}: date ${due} = ${dueExpected}`);
+    await shot(page, `20-bills-${locale}`);
+    await page.keyboard.press('Escape');
+    await page.getByRole('link', { name: { fr: 'Bibliothèque', de: 'Bibliothek', nl: 'Bibliotheek' }[locale] }).click();
+    await page.getByText(wifi).waitFor();
+    await shot(page, `21-library-${locale}`);
+    await ctx.close();
+    step(`${locale}: translated UI and samples; ${amount}; due ${due}`);
+  }
 
   // Tesseract logs harmless 'Parameter not found' warnings through console.error.
   const ignorable = /Failed to load resource|net::ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|EventSource|Parameter not found/;

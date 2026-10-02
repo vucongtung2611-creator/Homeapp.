@@ -3,7 +3,7 @@ import { RuleBasedExtractor, parseAmount, type BillFact, type ReceiptFact } from
 import { currencyDigits, splitEvenly } from '../../../src/modules/finance.js';
 import { api, type Bill, type Household, type Member, type Money } from '../api.js';
 import { CharacterAvatar } from '../characters.js';
-import { formatAmountInput, formatDate, formatList, formatMoney, t } from '../i18n/index.js';
+import { formatAmountInput, formatDate, formatList, formatMoney, getLocale, t } from '../i18n/index.js';
 import { RoomArt } from '../illustrations.js';
 import { readTextFromImage } from '../ocr.js';
 import type { Live } from '../router.js';
@@ -464,7 +464,7 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
     setError('');
     setOcr({ progress: 0, stage: 'loading' });
     try {
-      const raw = await readTextFromImage(file, (progress, stage) => setOcr({ progress, stage }));
+      const raw = await readTextFromImage(file, getLocale(), (progress, stage) => setOcr({ progress, stage }));
       setText(raw);
       setOcr(undefined);
       analyse(raw);

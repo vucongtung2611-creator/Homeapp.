@@ -17,7 +17,7 @@ const walk = (dir) => {
 walk(root);
 
 // Text right after an opening/closing tag, up to the next tag, brace or end of line.
-const jsxText = /<\/?[A-Za-z][^<>]*>\s*([^<>{}()=;\s][^<>{}()=;]*\p{L}[^<>{}()=;]*)(?=<|\{|$)/u;
+const jsxText = /<\/?[A-Za-z][^<>]*>\s*([^<>{}()=;:?&|,\s][^<>{}()=;]*\p{L}[^<>{}()=;]*)(?=<|\{|$)/u;
 const attr = /\b(aria-label|title|placeholder|alt|label|hint|text)="([^"]*\p{L}[^"]*)"/u;
 const problems = [];
 for (const file of files) {

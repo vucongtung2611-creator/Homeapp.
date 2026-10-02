@@ -7,6 +7,7 @@
 import de from './de.js';
 import en from './en.js';
 import fr from './fr.js';
+import nl from './nl.js';
 import vi from './vi.js';
 
 type PluralKey = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
@@ -31,6 +32,7 @@ export const LOCALES = [
   { code: 'vi', name: 'Tiếng Việt', messages: vi },
   { code: 'fr', name: 'Français', messages: fr },
   { code: 'de', name: 'Deutsch', messages: de },
+  { code: 'nl', name: 'Nederlands', messages: nl },
 ] as const satisfies readonly { code: string; name: string; messages: Messages | PartialMessages }[];
 
 export type LocaleCode = (typeof LOCALES)[number]['code'];

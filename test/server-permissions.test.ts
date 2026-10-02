@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { Client, JPEG, houseOf, testServer } from './server-helpers.js';
 
 test('outsiders cannot see or touch a household (404, not 403)', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid } = await houseOf(server, ['Linh', 'An']);
   const stranger = new Client(server);
   await stranger.signup('Mallory');
@@ -16,7 +16,7 @@ test('outsiders cannot see or touch a household (404, not 403)', async () => {
 });
 
 test('private library items stay with their creator', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   const secret = await an.post(`/api/households/${hid}/items`, { title: 'Nhật ký', body: 'bí mật', private: true });
@@ -35,7 +35,7 @@ test('private library items stay with their creator', async () => {
 });
 
 test('uploads: only real images/PDFs, and files follow the privacy of what they are attached to', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   const outsider = new Client(server);
@@ -77,7 +77,7 @@ test('uploads: only real images/PDFs, and files follow the privacy of what they 
 });
 
 test('removed members lose access immediately; only the owner removes others', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients, users } = await houseOf(server, ['Linh', 'An', 'Bao']);
   const [linh, an, bao] = clients as [Client, Client, Client];
   assert.equal((await an.del(`/api/households/${hid}/members/${users[2]!.id}`)).status, 403);
@@ -90,7 +90,7 @@ test('removed members lose access immediately; only the owner removes others', a
 });
 
 test('chat: members only, own messages deletable, history paginates', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   const m = await an.post(`/api/households/${hid}/messages`, { text: 'Tối nay ăn gì?' });
@@ -107,7 +107,7 @@ test('chat: members only, own messages deletable, history paginates', async () =
 });
 
 test('messages arrive instantly over the event stream', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   const res = await server.app.request(`http://localhost/api/households/${hid}/events`, { headers: { Cookie: linh.cookie } });

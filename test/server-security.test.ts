@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
-import { createServer } from '../server/app.js';
 import { Client, houseOf, testServer } from './server-helpers.js';
 
 test('ids from another household are a 404, never a 500 or a leak', async () => {
-  const server = testServer();
+  const server = await testServer();
   const a = await houseOf(server, ['Linh', 'An']);
   const b = await houseOf(server, ['Mai', 'Son']);
   const note = await b.clients[0]!.post(`/api/households/${b.hid}/items`, { title: 'Bí mật nhà B' });
@@ -21,14 +17,14 @@ test('ids from another household are a 404, never a 500 or a leak', async () => 
 });
 
 test('oversized JSON bodies are refused', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh']);
   const res = await clients[0]!.post(`/api/households/${hid}/items`, { title: 'x', body: 'a'.repeat(300 * 1024) });
   assert.equal(res.status, 413);
 });
 
 test('chat only accepts images; documents belong in the library', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh']);
   const pdf = new TextEncoder().encode('%PDF-1.4\n%%EOF');
   const up = await clients[0]!.req('POST', `/api/households/${hid}/files`, pdf);
@@ -40,7 +36,7 @@ test('chat only accepts images; documents belong in the library', async () => {
 });
 
 test('behind a proxy: spoofed X-Forwarded-For cannot dodge the login limit; Secure cookies on HTTPS', async () => {
-  const server = createServer({ dataDir: mkdtempSync(join(tmpdir(), 'homeapp-proxy-')), trustProxy: true });
+  const server = await testServer({ trustProxy: true });
   const attempt = (spoof: string) =>
     server.app.request('http://app.internal/api/auth/login', {
       method: 'POST',
@@ -73,7 +69,7 @@ test('behind a proxy: spoofed X-Forwarded-For cannot dodge the login limit; Secu
 });
 
 test('settling up and paying bills is announced in the chat', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients, users } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   const bill = (await linh.post(`/api/households/${hid}/bills`, { amount: 200, label: 'Internet', category: 'internet' })).data.bills[0];

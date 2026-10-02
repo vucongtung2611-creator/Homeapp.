@@ -27,14 +27,24 @@ function loadScript(): Promise<void> {
   return scriptLoad;
 }
 
+/** App language → Tesseract model. English is always loaded alongside. */
+const MODEL: Record<string, string> = { vi: 'vie', fr: 'fra', de: 'deu', nl: 'nld' };
+
 let workerPromise: Promise<OcrWorker> | undefined;
+let workerLangs = '';
 let progressListener: ((p: number, stage: string) => void) | undefined;
 
-export async function readTextFromImage(file: Blob, onProgress?: (p: number, stage: string) => void): Promise<string> {
+export async function readTextFromImage(file: Blob, locale: string, onProgress?: (p: number, stage: string) => void): Promise<string> {
   progressListener = onProgress;
   onProgress?.(0, 'loading');
   await loadScript();
-  workerPromise ??= window.Tesseract!.createWorker(['vie', 'eng'], 1, {
+  const langs = ['eng', ...(MODEL[locale] ? [MODEL[locale]!] : [])];
+  if (workerLangs !== langs.join('+')) {
+    void workerPromise?.then((w) => w.terminate()).catch(() => {});
+    workerPromise = undefined;
+    workerLangs = langs.join('+');
+  }
+  workerPromise ??= window.Tesseract!.createWorker(langs, 1, {
     workerPath: '/ocr/worker.min.js',
     corePath: '/ocr/core',
     langPath: '/ocr/lang',

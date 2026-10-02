@@ -1,0 +1,13 @@
+# Koyeb (alternative to Render, also free): Koyeb → Create Service → GitHub →
+# this repository → Builder: Dockerfile → Instance: Free → Port 3000 →
+# environment variables below (DATABASE_URL as a Secret) → Deploy.
+# Koyeb has no blueprint import; this file documents the settings to enter.
+service: mate
+builder: dockerfile
+instance_type: free
+port: 3000
+health_check: /api/health
+env:
+  DATABASE_URL: "<Koyeb secret: Neon connection string>"
+  TRUST_PROXY: "1"
+  HOUSEHOLD_QUOTA_MB: "50"

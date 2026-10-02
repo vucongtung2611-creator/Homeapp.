@@ -23,14 +23,27 @@ if (existsSync(charactersDir)) {
     const dir = join(charactersDir, id);
     if (!statSync(dir).isDirectory()) continue;
     const entry = { scenes: {} };
+    const urlOf = (rel) => `/characters/${id}/${rel}?v=${createHash('sha1').update(readFileSync(join(dir, rel))).digest('hex').slice(0, 8)}`;
     for (const file of readdirSync(dir)) {
       const ext = extname(file).toLowerCase();
       if (!ART_EXT.includes(ext)) continue;
-      const hash = createHash('sha1').update(readFileSync(join(dir, file))).digest('hex').slice(0, 8);
-      const url = `/characters/${id}/${file}?v=${hash}`;
       const stem = basename(file, extname(file));
-      if (stem === 'avatar') entry.avatar = url;
-      else entry.scenes[stem] = url;
+      // avatar / blink / wave are animation frames; anything else is a room scene.
+      if (['avatar', 'blink', 'wave'].includes(stem)) entry[stem] = urlOf(file);
+      else entry.scenes[stem] = urlOf(file);
+    }
+    // layers/<slot>/<option>.* — pieces drawn over the avatar (Tom's hair, outfits).
+    const layersDir = join(dir, 'layers');
+    if (existsSync(layersDir)) {
+      for (const slot of readdirSync(layersDir)) {
+        if (!statSync(join(layersDir, slot)).isDirectory()) continue;
+        for (const file of readdirSync(join(layersDir, slot))) {
+          if (!ART_EXT.includes(extname(file).toLowerCase())) continue;
+          entry.layers ??= {};
+          entry.layers[slot] ??= {};
+          entry.layers[slot][basename(file, extname(file))] = urlOf(`layers/${slot}/${file}`);
+        }
+      }
     }
     characterArt[id] = entry;
   }
@@ -84,7 +97,7 @@ copyFileSync(join(root, 'node_modules/tesseract.js/dist/tesseract.min.js'), join
 copyFileSync(join(root, 'node_modules/tesseract.js/dist/worker.min.js'), join(ocr, 'worker.min.js'));
 const coreDir = join(root, 'node_modules/tesseract.js-core');
 for (const f of readdirSync(coreDir)) if (f.includes('lstm')) copyFileSync(join(coreDir, f), join(ocr, 'core', f));
-for (const lang of ['eng', 'vie']) {
+for (const lang of ['eng', 'vie', 'fra', 'deu', 'nld']) {
   copyFileSync(
     join(root, `node_modules/@tesseract.js-data/${lang}/4.0.0_best_int/${lang}.traineddata.gz`),
     join(ocr, 'lang', `${lang}.traineddata.gz`),

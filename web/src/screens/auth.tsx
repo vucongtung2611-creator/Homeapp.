@@ -1,8 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { DEFAULT_CHARACTER } from '../../../src/characters.js';
+import { DEFAULT_CHARACTER, MASCOT } from '../../../src/characters.js';
 import { api, ApiError } from '../api.js';
-import { CharacterPicker } from '../characters.js';
+import { CharacterAvatar, CharacterPicker } from '../characters.js';
 import { currencyName, getLocale, t } from '../i18n/index.js';
 import { Illustration } from '../illustrations.js';
 import { LanguageSwitch } from '../language.js';
@@ -31,10 +31,35 @@ function Frame({ children, back }: { children: ComponentChildren; back?: () => v
   );
 }
 
+/** "Manage · Assist · Together · Everyday" with the M-A-T-E initials emphasised. */
+function Acronym() {
+  return (
+    <p class="acronym">
+      {t('app.acronym')
+        .split(' · ')
+        .map((word, i) => (
+          <span key={word}>
+            {i > 0 && ' · '}
+            <b>{word.charAt(0)}</b>
+            {word.slice(1)}
+          </span>
+        ))}
+    </p>
+  );
+}
+
 export function WelcomeScreen() {
   return (
     <Frame>
-      <h1>{t('welcome.title')}</h1>
+      <div class="mascot">
+        <CharacterAvatar id={MASCOT} size={72} mood="wave" />
+        <div class="speech">{t('characters.hello')}</div>
+      </div>
+      <h1 class="wordmark">{t('app.name')}</h1>
+      <Acronym />
+      <p class="lead" style={{ marginBottom: 8, color: 'var(--text)' }}>
+        {t('app.tagline')}
+      </p>
       <p class="lead">{t('welcome.lead')}</p>
       <div class="feature">
         <span class="emoji">💬</span>

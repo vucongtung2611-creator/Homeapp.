@@ -1,14 +1,14 @@
 {
-  "name": "Nhà mình",
-  "short_name": "Nhà",
-  "description": "Chat, thư viện và hóa đơn chung cho cả nhà.",
+  "name": "MATE",
+  "short_name": "MATE",
+  "description": "Manage, Assist, Together, Everyday — your everyday companion at home.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F7F8F7",
   "theme_color": "#0E7C66",
-  "lang": "vi",
+  "lang": "en",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },

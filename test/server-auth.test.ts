@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { Client, houseOf, testServer } from './server-helpers.js';
 
 test('signup, session cookie, logout', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
   const res = await c.post('/api/auth/signup', { name: 'Linh', email: ' Linh@Example.com ', password: 'mật khẩu dài' });
   assert.equal(res.status, 201);
@@ -18,7 +18,7 @@ test('signup, session cookie, logout', async () => {
 });
 
 test('login: right password works, wrong password and unknown email give the same error', async () => {
-  const server = testServer();
+  const server = await testServer();
   await new Client(server).signup('An', 'an@example.com', 'super secret 1');
   const c = new Client(server);
   const wrong = await c.post('/api/auth/login', { email: 'an@example.com', password: 'nope nope nope' });
@@ -31,7 +31,7 @@ test('login: right password works, wrong password and unknown email give the sam
 });
 
 test('signup validation and duplicate emails', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
   assert.equal((await c.post('/api/auth/signup', { name: 'X', email: 'bad', password: 'long enough' })).data.error, 'invalid_email');
   assert.equal((await c.post('/api/auth/signup', { name: 'X', email: 'x@x.io', password: 'short' })).data.error, 'password_too_short');
@@ -42,18 +42,18 @@ test('signup validation and duplicate emails', async () => {
 });
 
 test('passwords are stored hashed, sessions stored as hashes', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
   await c.signup('Linh', 'linh@example.com', 'plain text password');
-  const row = server.db.prepare('SELECT password_hash FROM users').get() as { password_hash: string };
+  const row = (await server.db.get<{ password_hash: string }>('SELECT password_hash FROM users'))!;
   assert.match(row.password_hash, /^scrypt\$/);
   assert.doesNotMatch(row.password_hash, /plain text/);
-  const session = server.db.prepare('SELECT token_hash FROM sessions').get() as { token_hash: string };
+  const session = (await server.db.get<{ token_hash: string }>('SELECT token_hash FROM sessions'))!;
   assert.notEqual(`sid=${session.token_hash}`, c.cookie);
 });
 
 test('login is rate limited per IP and email', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
   let last = 0;
   for (let i = 0; i < 11; i++) last = (await c.post('/api/auth/login', { email: 'a@b.co', password: 'wrong wrong' })).status;
@@ -61,7 +61,7 @@ test('login is rate limited per IP and email', async () => {
 });
 
 test('state-changing requests need the app header (CSRF) and a foreign Origin is refused', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
   const noHeader = await server.app.request('http://localhost/api/auth/signup', {
     method: 'POST',
@@ -74,15 +74,15 @@ test('state-changing requests need the app header (CSRF) and a foreign Origin is
 });
 
 test('expired sessions are rejected', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
   await c.signup('Linh');
-  server.db.prepare("UPDATE sessions SET expires_at = '2000-01-01T00:00:00Z'").run();
+  await server.db.run("UPDATE sessions SET expires_at = '2000-01-01T00:00:00Z'");
   assert.equal((await c.get('/api/me')).data.user, null);
 });
 
 test('invite links: join once, regenerate retires the old link, bad tokens fail', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients, token } = await houseOf(server, ['Linh', 'An']);
   const preview = await new Client(server).get(`/api/invites/${token}`);
   assert.deepEqual(Object.keys(preview.data).sort(), ['alreadyMember', 'householdName', 'inviterName']);
@@ -102,7 +102,7 @@ test('invite links: join once, regenerate retires the old link, bad tokens fail'
 
   // Expired links fail.
   const fresh = await clients[0]!.post(`/api/households/${hid}/invite`);
-  server.db.prepare("UPDATE invites SET expires_at = '2000-01-01T00:00:00Z'").run();
+  await server.db.run("UPDATE invites SET expires_at = '2000-01-01T00:00:00Z'");
   const freshToken = new URL(fresh.data.url).pathname.split('/').pop()!;
   assert.equal((await late.post(`/api/invites/${freshToken}/accept`)).status, 404);
 

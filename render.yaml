@@ -1,20 +1,18 @@
-# Render Blueprint: New → Blueprint → pick this repo.
-# A persistent disk needs the Starter plan; on the free plan data is wiped on every deploy/restart.
+# Render Blueprint — free web service + free Postgres from Neon.
+# Render → New → Blueprint → pick this repository. You will be asked for
+# DATABASE_URL: paste the Neon connection string (it stays secret on Render).
 services:
   - type: web
-    name: homeapp-light
+    name: mate
     runtime: docker
-    plan: starter
-    region: singapore
-    healthCheckPath: /api/me
+    plan: free
+    region: frankfurt # closest to the Netherlands; use singapore for friends in Vietnam
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
+      - key: DATABASE_URL
+        sync: false # secret: entered in the Render dashboard, never in the code
       - key: TRUST_PROXY
         value: "1"
-      - key: DATA_DIR
-        value: /data
-      - key: PUBLIC_URL
-        sync: false
-    disk:
-      name: data
-      mountPath: /data
-      sizeGB: 1
+      - key: HOUSEHOLD_QUOTA_MB
+        value: "50" # Neon free = 0.5 GB in total

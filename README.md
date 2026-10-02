@@ -1,10 +1,12 @@
-# Homeapp — AI Household Butler
+# MATE — Manage · Assist · Together · Everyday
+
+*Your everyday companion at home.* (Codebase: Homeapp — AI Household Butler.)
 
 > *We don't build a smarter home. We build smarter living together.*
 
 A Connected Living Platform: one **Household Graph** that links people, things, money, parcels, recipes and repairs, with **permissions built into the core** and an **AI Butler** that reasons over exactly what the person asking is allowed to see.
 
-> **Light beta:** a phone-first web app with Chat, Library and Bills for a household, in English and Vietnamese (French/German ready for translation) — see [docs/LIGHT.md](docs/LIGHT.md) (Vietnamese) for scope, deployment and the security review. `npm install && npm run build && npm start` → http://localhost:3000
+> **Light beta:** a phone-first web app with Chat, Library and Bills for a household, in English, Vietnamese, French, German and Dutch — see [docs/LIGHT.md](docs/LIGHT.md) (Vietnamese) for scope and the security review, and [docs/DEPLOY.md](docs/DEPLOY.md) for free hosting (Render + Neon Postgres). `npm install && npm run build && npm start` → http://localhost:3000
 
 - 📄 [Product vision (VI)](docs/VISION.md)
 - 🏗️ [Architecture](docs/ARCHITECTURE.md)

@@ -45,6 +45,45 @@ export const SAMPLES: Record<string, SampleContent> = {
     ],
     bill: { label: 'Tiền điện', provider: { default: 'Energy Co', VND: 'EVN' } },
   },
+  fr: {
+    notes: [
+      { title: 'Wi-Fi de la maison', body: 'Réseau : NotreMaison_5G\nMot de passe : (modifiez cette note pour ajouter le vrai)', tags: ['maison', 'wifi'] },
+      {
+        title: 'Règles de la maison',
+        body: '• Poubelles le mardi et le vendredi soir\n• Qui cuisine ne fait pas la vaisselle\n• Un invité pour la nuit ? Prévenez dans la discussion',
+        tags: ['maison', 'règles'],
+      },
+      { title: 'Numéros utiles', body: 'Propriétaire : …\nPlombier : …\nGardien : …', tags: ['contacts'] },
+      { title: 'Votre note privée', body: 'Les notes avec un cadenas ne sont visibles que par vous.', tags: ['privé'], private: true },
+    ],
+    bill: { label: 'Électricité', provider: { default: 'Énergie & Cie', VND: 'EVN' } },
+  },
+  de: {
+    notes: [
+      { title: 'WLAN zu Hause', body: 'Netzwerk: UnserZuhause_5G\nPasswort: (Notiz bearbeiten und das echte eintragen)', tags: ['wohnung', 'wlan'] },
+      {
+        title: 'Hausregeln',
+        body: '• Müll raus am Dienstag- und Freitagabend\n• Wer kocht, spült nicht\n• Übernachtungsgäste? Kurz im Chat Bescheid geben',
+        tags: ['wohnung', 'regeln'],
+      },
+      { title: 'Wichtige Nummern', body: 'Vermieter: …\nKlempner: …\nHausmeister: …', tags: ['kontakte'] },
+      { title: 'Deine private Notiz', body: 'Notizen mit Schloss siehst nur du. Deine Mitbewohner nicht.', tags: ['privat'], private: true },
+    ],
+    bill: { label: 'Strom', provider: { default: 'Stadtwerke', VND: 'EVN' } },
+  },
+  nl: {
+    notes: [
+      { title: 'Wifi thuis', body: 'Netwerk: OnsHuis_5G\nWachtwoord: (bewerk deze notitie en vul het echte in)', tags: ['huis', 'wifi'] },
+      {
+        title: 'Huisregels',
+        body: '• Afval buiten op dinsdag- en vrijdagavond\n• Wie kookt, wast niet af\n• Logees? Laat het even weten in de chat',
+        tags: ['huis', 'regels'],
+      },
+      { title: 'Handige nummers', body: 'Verhuurder: …\nLoodgieter: …\nBeheerder: …', tags: ['contacten'] },
+      { title: 'Jouw privénotitie', body: 'Notities met een slotje zie alleen jij. Je huisgenoten niet.', tags: ['privé'], private: true },
+    ],
+    bill: { label: 'Stroom', provider: { default: 'Energiebedrijf', VND: 'EVN' } },
+  },
 };
 
 export const samplesFor = (locale: string): SampleContent => SAMPLES[locale.toLowerCase().split('-')[0]!] ?? SAMPLES.en!;

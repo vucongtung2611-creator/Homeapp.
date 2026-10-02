@@ -103,7 +103,7 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
       <section class="card">
         {home.members.map((m) => (
           <div class="member" key={m.id}>
-            <CharacterAvatar id={m.avatar} size={40} />
+            <CharacterAvatar id={m.avatar} size={40} mood={m.id === me.id ? 'idle' : 'still'} />
             <span style={{ flex: 1, minWidth: 0 }}>
               {m.id === me.id ? t('common.youSuffix', { name: m.name }) : m.name}
               <span class="muted" style={{ display: 'block', fontSize: 14 }}>

@@ -222,7 +222,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
                   <div class="system">{m.system ? systemText(m.system) : m.text}</div>
                 ) : (
                   <div class={`msg ${mine ? 'mine' : ''} ${cont ? 'cont' : ''} ${m.failed ? 'failed' : ''} ${fresh.current.has(m.id) ? 'fresh' : ''}`}>
-                    {!mine && <span class="avatar-slot">{!lastOfGroup(i) ? null : <CharacterAvatar id={avatarOf(m.userId)} size={30} title={m.userName ?? ''} />}</span>}
+                    {!mine && <span class="avatar-slot">{!lastOfGroup(i) ? null : <CharacterAvatar id={avatarOf(m.userId)} size={30} title={m.userName ?? ''} mood={fresh.current.has(m.id) ? 'bounce' : 'still'} />}</span>}
                     <div class="col">
                       {!mine && !cont && <span class="who">{m.userName}</span>}
                       <div

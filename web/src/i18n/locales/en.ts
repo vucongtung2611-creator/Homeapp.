@@ -6,8 +6,9 @@
  */
 const en = {
   app: {
-    name: 'Our Home',
-    tagline: 'Chat, library and bills for everyone at home.',
+    name: 'MATE',
+    acronym: 'Manage · Assist · Together · Everyday',
+    tagline: 'Your everyday companion at home.',
   },
   common: {
     loading: 'Loading',
@@ -38,7 +39,6 @@ const en = {
     night: ['Still up, {name}? 🦉', 'Late night, {name} ✨', 'Hi, night owl 🌌'],
   },
   welcome: {
-    title: 'A home for everyone at home',
     lead: 'One shared place to talk, keep the important papers, and split the bills without a calculator.',
     chatTitle: 'Shared chat',
     chatText: 'Messages and photos reach everyone instantly.',
@@ -331,10 +331,12 @@ const en = {
     child: 'Child',
   },
   characters: {
-    grandpa: { name: 'Grandpa', initial: 'G', description: 'Calm, wise, never without a book' },
-    artist: { name: 'The Artist', initial: 'A', description: 'Dreamy, always sketching something' },
-    woman: { name: 'The Woman', initial: 'W', description: 'Warm, organised, waves from the kitchen window' },
-    boy: { name: 'The Boy', initial: 'B', description: 'Curious, full of energy and questions' },
+    hello: 'Hi, I’m Tom! I’ll show you around.',
+    tom: { name: 'Tom', initial: 'T', description: 'Your guide in MATE — and soon, you: pick his hair and outfit.' },
+    james: { name: 'James', initial: 'J', description: 'Calm and wise, never without a book' },
+    timothy: { name: 'Timothy', initial: 'T', description: 'A dreamy artist, always sketching something' },
+    ella: { name: 'Ella', initial: 'E', description: 'Warm and organised, waves from the kitchen window' },
+    nolan: { name: 'Nolan', initial: 'N', description: 'Curious, full of energy and questions' },
   },
   errors: {
     network: 'Can’t connect. Check your connection and try again.',
@@ -368,7 +370,7 @@ const en = {
     participants_invalid: 'Pick at least one person to split with.',
     message_empty: 'The message is empty.',
     csrf: 'Blocked for security reasons. Reload the page.',
-    storage_full: 'This home has used its 500 MB. Delete some old files and try again.',
+    storage_full: 'This home is out of storage space. Delete some old files and try again.',
     chat_images_only: 'Only photos can go in the chat. Put documents in the Library.',
     body_too_large: 'That’s too long.',
     avatar_invalid: 'Please pick one of the characters.',

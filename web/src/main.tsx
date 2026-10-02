@@ -6,6 +6,7 @@ import { BillsScreen } from './screens/bills.js';
 import { ChatScreen } from './screens/chat.js';
 import { LibraryScreen } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
+import { CharacterAvatar } from './characters.js';
 import { onLocaleChange, t, tPick } from './i18n/index.js';
 import { ErrorState, Icon, Skeleton, Spinner, Toasts, useLoad } from './ui.js';
 import { partOfDay } from './util.js';
@@ -162,6 +163,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
             <Icon.back />
           </button>
         ) : null}
+        {tab === 'chat' && h && <CharacterAvatar id={session.user?.avatar} size={40} mood="wave" />}
         <h1>
           {titles[tab]}
           <span class="sub">{subtitle}</span>

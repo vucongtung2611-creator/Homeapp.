@@ -165,3 +165,68 @@ test('date parsing', () => {
   assert.equal(parseDate('Oct 5th', 2026), '2026-10-05');
   assert.equal(parseDate('ngày 5 tháng 10', 2027), '2027-10-05');
 });
+
+const eur = new RuleBasedExtractor({ defaultCurrency: 'EUR' });
+
+test('French bill: "Montant à payer", échéance, période du … au …', () => {
+  const [bill] = eur.extract({
+    source: 'email',
+    from: 'factures@energie-sud.fr',
+    subject: 'Votre facture d’électricité',
+    body: 'Période de facturation : du 01/09/2026 au 30/09/2026\nMontant à payer : 1 234,56 €\nDate d’échéance : 15 octobre 2026',
+    receivedAt: at,
+  });
+  assert.deepEqual(bill && { ...bill, provider: undefined }, {
+    kind: 'bill',
+    category: 'electricity',
+    amount: 1234.56,
+    currency: 'EUR',
+    provider: undefined,
+    dueDate: '2026-10-15',
+    periodStart: '2026-09-01',
+    periodEnd: '2026-09-30',
+  });
+});
+
+test('German bill: Rechnungsbetrag, "fällig am 15. Oktober", Abrechnungszeitraum … bis …', () => {
+  const [bill] = eur.extract({
+    source: 'ocr',
+    body: 'Stadtwerke – Ihre Stromrechnung\nAbrechnungszeitraum: 01.09.2026 bis 30.09.2026\nRechnungsbetrag: 89,90 €\nFällig am 15. Oktober 2026',
+    receivedAt: at,
+  });
+  assert.deepEqual(bill, {
+    kind: 'bill',
+    category: 'electricity',
+    amount: 89.9,
+    currency: 'EUR',
+    dueDate: '2026-10-15',
+    periodStart: '2026-09-01',
+    periodEnd: '2026-09-30',
+  });
+});
+
+test('Dutch bill: "Te betalen: € 1.049,95", vervaldatum, factuurperiode … t/m …', () => {
+  const [bill] = eur.extract({
+    source: 'email',
+    body: 'Uw huur voor oktober\nFactuurperiode: 01-10-2026 t/m 31-10-2026\nTe betalen: € 1.049,95\nVervaldatum: 1 okt. 2026',
+    receivedAt: at,
+  });
+  assert.deepEqual(bill, {
+    kind: 'bill',
+    category: 'rent',
+    amount: 1049.95,
+    currency: 'EUR',
+    dueDate: '2026-10-01',
+    periodStart: '2026-10-01',
+    periodEnd: '2026-10-31',
+  });
+});
+
+test('dates in French, German and Dutch month names', () => {
+  assert.equal(parseDate('1er août 2026', 2026), '2026-08-01');
+  assert.equal(parseDate('3 févr. 2027', 2026), '2027-02-03');
+  assert.equal(parseDate('15. März 2026', 2026), '2026-03-15');
+  assert.equal(parseDate('12 mrt 2026', 2026), '2026-03-12');
+  assert.equal(parseDate('7 mei', 2026), '2026-05-07');
+  assert.equal(parseDate('2 décembre 2026', 2026), '2026-12-02');
+});

@@ -3,8 +3,9 @@ import type { Messages } from './index.js';
 
 const vi: Messages = {
   app: {
-    name: 'Nhà mình',
-    tagline: 'Chat, thư viện và hóa đơn chung cho cả nhà.',
+    name: 'MATE',
+    acronym: 'Manage · Assist · Together · Everyday',
+    tagline: 'Người bạn đồng hành của cả nhà, mỗi ngày.',
   },
   common: {
     loading: 'Đang tải',
@@ -35,7 +36,6 @@ const vi: Messages = {
     night: ['Còn thức hả {name}? 🦉', 'Khuya rồi đó {name} ✨', 'Chào cú đêm 🌌'],
   },
   welcome: {
-    title: 'Một chỗ chung cho cả nhà',
     lead: 'Nói chuyện, cất giấy tờ quan trọng, và chia tiền hóa đơn mà không cần bấm máy tính.',
     chatTitle: 'Chat chung',
     chatText: 'Tin nhắn và ảnh đến ngay với mọi người trong nhà.',
@@ -328,10 +328,12 @@ const vi: Messages = {
     child: 'Con',
   },
   characters: {
-    grandpa: { name: 'Ông', initial: 'Ô', description: 'Điềm đạm, hiền hậu, lúc nào cũng có cuốn sách' },
-    artist: { name: 'Chàng nghệ sĩ', initial: 'N', description: 'Mơ mộng, lúc nào cũng vẽ vời' },
-    woman: { name: 'Cô', initial: 'C', description: 'Ấm áp, chu đáo, hay vẫy tay ở cửa sổ bếp' },
-    boy: { name: 'Cậu bé', initial: 'B', description: 'Tò mò, nhiều năng lượng và câu hỏi' },
+    hello: 'Chào bạn, mình là Tom! Để mình dẫn bạn đi một vòng nhé.',
+    tom: { name: 'Tom', initial: 'T', description: 'Người dẫn đường trong MATE — và sắp tới là chính bạn: tự chọn tóc và trang phục.' },
+    james: { name: 'James', initial: 'J', description: 'Điềm đạm, hiền hậu, lúc nào cũng có cuốn sách' },
+    timothy: { name: 'Timothy', initial: 'T', description: 'Chàng nghệ sĩ mơ mộng, lúc nào cũng vẽ vời' },
+    ella: { name: 'Ella', initial: 'E', description: 'Ấm áp, chu đáo, hay vẫy tay ở cửa sổ bếp' },
+    nolan: { name: 'Nolan', initial: 'N', description: 'Tò mò, nhiều năng lượng và câu hỏi' },
   },
   errors: {
     network: 'Không kết nối được. Kiểm tra mạng rồi thử lại.',
@@ -365,7 +367,7 @@ const vi: Messages = {
     participants_invalid: 'Hãy chọn ít nhất một người để chia.',
     message_empty: 'Tin nhắn trống.',
     csrf: 'Yêu cầu bị chặn vì lý do bảo mật. Tải lại trang.',
-    storage_full: 'Nhà đã dùng hết 500 MB lưu trữ. Xoá bớt tệp cũ rồi thử lại.',
+    storage_full: 'Nhà đã hết dung lượng lưu trữ. Xoá bớt tệp cũ rồi thử lại.',
     chat_images_only: 'Chat chỉ gửi được ảnh. Tài liệu hãy cất vào Thư viện.',
     body_too_large: 'Nội dung quá dài.',
     avatar_invalid: 'Hãy chọn một trong các nhân vật.',

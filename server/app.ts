@@ -20,7 +20,7 @@ import {
 } from '../src/index.js';
 import { DEFAULT_CHARACTER } from '../src/characters.js';
 import { Auth, AuthError, RateLimiter, newToken, sha256, type User } from './auth.js';
-import { openDb, type Db } from './db.js';
+import { openPostgresUrl, openSqlite, type Database } from './database.js';
 import { FileStore, MAX_UPLOAD_BYTES, type StoredFile } from './files.js';
 import { RealtimeHub } from './realtime.js';
 import { clearSamples, hasSamples, seedSamples } from './seed.js';
@@ -40,7 +40,12 @@ import {
 } from './validate.js';
 
 export interface ServerOptions {
+  /** Where the SQLite file lives when no DATABASE_URL is given. */
   dataDir: string;
+  /** Postgres connection string (e.g. Neon). When set, nothing is stored on local disk. */
+  databaseUrl?: string;
+  /** Storage allowed per household for uploads, in bytes. */
+  householdQuotaBytes?: number;
   /** Built web app. Omit in API-only tests. */
   publicDir?: string;
   /** Mark cookies Secure (true behind HTTPS). */
@@ -49,22 +54,24 @@ export interface ServerOptions {
   publicUrl?: string;
   /** Trust X-Forwarded-For for client IPs (set when behind a proxy). */
   trustProxy?: boolean;
-  db?: Db;
+  db?: Database;
 }
 
 const SESSION_COOKIE = 'sid';
-const HOUSEHOLD_QUOTA_BYTES = 500 * 1024 * 1024;
 const INVITE_DAYS = 7;
 const RESIDENT_ROLES: Role[] = ['owner', 'family_member', 'tenant', 'child'];
 const INVITER_ROLES: Role[] = ['owner', 'family_member', 'tenant'];
 
 type Env = { Variables: { user?: User } };
 
-export function createServer(options: ServerOptions) {
-  const db = options.db ?? openDb(join(options.dataDir, 'homeapp.db'));
+export async function createServer(options: ServerOptions) {
+  const db =
+    options.db ?? (options.databaseUrl ? await openPostgresUrl(options.databaseUrl) : await openSqlite(join(options.dataDir, 'homeapp.db')));
+  // Free Postgres tiers are small (Neon: 0.5 GB), so homes get less room there by default.
+  const quota = options.householdQuotaBytes ?? (db.dialect === 'postgres' ? 100 : 500) * 1024 * 1024;
   const auth = new Auth(db);
   const store = new HouseholdStore(db);
-  const files = new FileStore(db, options.dataDir);
+  const files = new FileStore(db, db.dialect === 'sqlite' ? options.dataDir : undefined);
   const hub = new RealtimeHub();
   const limits = {
     login: new RateLimiter(10, 15 * 60_000),
@@ -96,7 +103,7 @@ export function createServer(options: ServerOptions) {
     c.header('Referrer-Policy', 'no-referrer'); // invite tokens live in URLs
     c.header('X-Frame-Options', 'DENY');
     c.header('Permissions-Policy', 'geolocation=(), microphone=()');
-    if (options.secureCookies) c.header('Strict-Transport-Security', 'max-age=31536000');
+    if (isHttps(c)) c.header('Strict-Transport-Security', 'max-age=31536000');
     if (!c.res.headers.get('Content-Security-Policy')) {
       c.header(
         'Content-Security-Policy',
@@ -127,7 +134,7 @@ export function createServer(options: ServerOptions) {
     }
     c.header('Cache-Control', 'no-store');
     const token = getCookie(c, SESSION_COOKIE);
-    const user = auth.userForSession(token);
+    const user = await auth.userForSession(token);
     if (user) c.set('user', user);
     await next();
   });
@@ -170,16 +177,16 @@ export function createServer(options: ServerOptions) {
     return user;
   };
   /** Non-members get a 404, so household ids can't be probed. */
-  const requireMember = (c: Context<Env>) => {
+  const requireMember = async (c: Context<Env>) => {
     const user = requireUser(c);
     const householdId = c.req.param('hid') ?? '';
-    const home = store.get(householdId);
+    const home = await store.get(householdId);
     const role = home?.platform.acl.roleOf(user.id, householdId);
     if (!home || !role) throw new HttpError(404, 'not_found');
     return { user, householdId, home, role };
   };
-  const startSession = (c: Context, user: User) => {
-    const { token, expiresAt } = auth.createSession(user.id);
+  const startSession = async (c: Context, user: User) => {
+    const { token, expiresAt } = await auth.createSession(user.id);
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
       secure: isHttps(c),
@@ -190,12 +197,18 @@ export function createServer(options: ServerOptions) {
   };
   const origin = (c: Context) => options.publicUrl ?? `${isHttps(c) ? 'https' : 'http'}://${requestHost(c)}`;
 
+  // ── Health (for the host's checks and keep-awake pings; no data) ──────
+  app.get('/api/health', async (c) => {
+    await db.get('SELECT 1 AS ok');
+    return c.json({ ok: true });
+  });
+
   // ── Auth ─────────────────────────────────────────────────────────────
   app.post('/api/auth/signup', async (c) => {
     limit(limits.signup, ip(c));
     const data = await body(c);
     const user = await auth.signup({ email: data.email, password: data.password, name: data.name, avatar: data.avatar });
-    startSession(c, user);
+    await startSession(c, user);
     return c.json({ user }, 201);
   });
 
@@ -204,13 +217,13 @@ export function createServer(options: ServerOptions) {
     limit(limits.loginIp, ip(c));
     limit(limits.login, `${ip(c)}|${String(data.email ?? '').toLowerCase()}`);
     const user = await auth.login({ email: data.email, password: data.password });
-    startSession(c, user);
+    await startSession(c, user);
     return c.json({ user });
   });
 
-  app.post('/api/auth/logout', (c) => {
+  app.post('/api/auth/logout', async (c) => {
     const token = getCookie(c, SESSION_COOKIE);
-    if (token) auth.destroySession(token);
+    if (token) await auth.destroySession(token);
     deleteCookie(c, SESSION_COOKIE, { path: '/' });
     return c.json({ ok: true });
   });
@@ -218,15 +231,15 @@ export function createServer(options: ServerOptions) {
   app.patch('/api/me', async (c) => {
     const user = requireUser(c);
     const data = await body(c);
-    if (data.avatar !== undefined) auth.setAvatar(user.id, data.avatar);
-    for (const h of store.householdsOf(user.id)) hub.publish(h.id, { type: 'changed', area: 'members' });
-    return c.json({ user: auth.getUser(user.id) });
+    if (data.avatar !== undefined) await auth.setAvatar(user.id, data.avatar);
+    for (const h of await store.householdsOf(user.id)) hub.publish(h.id, { type: 'changed', area: 'members' });
+    return c.json({ user: await auth.getUser(user.id) });
   });
 
-  app.get('/api/me', (c) => {
+  app.get('/api/me', async (c) => {
     const user = c.get('user');
     if (!user) return c.json({ user: null, households: [] });
-    return c.json({ user, households: store.householdsOf(user.id) });
+    return c.json({ user, households: await store.householdsOf(user.id) });
   });
 
   // ── Households ───────────────────────────────────────────────────────
@@ -234,24 +247,21 @@ export function createServer(options: ServerOptions) {
     const user = requireUser(c);
     limit(limits.write, user.id);
     const data = await body(c);
-    if (store.householdsOf(user.id).length >= 10) throw bad('too_many_households');
+    if ((await store.householdsOf(user.id)).length >= 10) throw bad('too_many_households');
     const name = str(data.name, { max: 60, required: true, field: 'name' })!;
     const currency = oneOf(data.currency, CURRENCIES, 'currency', 'VND');
     const kind = oneOf(data.kind, ['share_house', 'family'] as const, 'kind', 'share_house');
-    const home = store.create(user, { name, currency, kind });
-    const householdId = home.platform.graph.find((n) => n.type === 'home')[0]!.id;
-    let welcome: string | undefined;
+    const householdId = await store.create(user, { name, currency, kind });
     if (bool(data.samples, true)) {
-      const locale = typeof data.locale === 'string' ? data.locale : 'en';
-      store.mutate(householdId, (h) => seedSamples(h, householdId, user.id, new Date(), locale));
-      welcome = 'welcome';
+      const locale = typeof data.locale === 'string' ? data.locale.slice(0, 10) : 'en';
+      await store.mutate(householdId, (h) => seedSamples(h, householdId, user.id, new Date(), locale));
+      await insertSystem(householdId, { key: 'welcome' });
     }
-    if (welcome) insertSystem(householdId, { key: 'welcome' });
     return c.json({ id: householdId }, 201);
   });
 
-  app.get('/api/households/:hid', (c) => {
-    const { user, householdId, home, role } = requireMember(c);
+  app.get('/api/households/:hid', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
     const node = home.platform.graph.requireNode(householdId);
     return c.json({
       id: householdId,
@@ -259,82 +269,79 @@ export function createServer(options: ServerOptions) {
       currency: node.props.currency,
       kind: node.props.kind,
       me: { id: user.id, role },
-      members: members(home, householdId, auth),
+      members: await members(home, householdId, auth),
       hasSamples: hasSamples(home, householdId),
       canInvite: INVITER_ROLES.includes(role),
     });
   });
 
-  app.delete('/api/households/:hid/samples', (c) => {
-    const { householdId, role } = requireMember(c);
+  app.delete('/api/households/:hid/samples', async (c) => {
+    const { householdId, role } = await requireMember(c);
     if (role !== 'owner') throw new HttpError(403, 'owner_only');
-    const removed = store.mutate(householdId, (h) => clearSamples(h, householdId));
-    db.prepare(`DELETE FROM messages WHERE household_id = ? AND user_id IS NULL AND meta LIKE '%"key":"welcome"%'`).run(householdId);
+    const removed = await store.mutate(householdId, (h) => clearSamples(h, householdId));
+    await db.run(`DELETE FROM messages WHERE household_id = ? AND user_id IS NULL AND meta LIKE '%"key":"welcome"%'`, householdId);
     hub.publish(householdId, { type: 'changed', area: 'household' });
     return c.json({ removed });
   });
 
-  app.delete('/api/households/:hid/members/:uid', (c) => {
-    const { user, householdId, role } = requireMember(c);
+  app.delete('/api/households/:hid/members/:uid', async (c) => {
+    const { user, householdId, role } = await requireMember(c);
     const target = c.req.param('uid');
-    const targetRole = store.roleOf(householdId, target);
+    const targetRole = await store.roleOf(householdId, target);
     if (!targetRole) throw new HttpError(404, 'not_found');
     if (target === user.id && role === 'owner') throw bad('owner_cannot_leave');
     if (target !== user.id && role !== 'owner') throw new HttpError(403, 'owner_only');
-    store.removeMember(householdId, target);
+    await store.removeMember(householdId, target);
     hub.kick(householdId, target);
     hub.publish(householdId, { type: 'changed', area: 'members' });
     return c.json({ ok: true });
   });
 
   // ── Invites ──────────────────────────────────────────────────────────
-  app.post('/api/households/:hid/invite', (c) => {
-    const { user, householdId, role } = requireMember(c);
+  app.post('/api/households/:hid/invite', async (c) => {
+    const { user, householdId, role } = await requireMember(c);
     if (!INVITER_ROLES.includes(role)) throw new HttpError(403, 'forbidden');
     limit(limits.write, user.id);
     const token = newToken();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + INVITE_DAYS * 86_400_000);
-    db.exec('BEGIN');
-    try {
+    await db.transaction(async (tx) => {
       // One live link per household: making a new one retires the old ones.
-      db.prepare('UPDATE invites SET revoked = 1 WHERE household_id = ?').run(householdId);
-      db.prepare('INSERT INTO invites (token_hash, household_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)').run(
+      await tx.run('UPDATE invites SET revoked = 1 WHERE household_id = ?', householdId);
+      await tx.run(
+        'INSERT INTO invites (token_hash, household_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
         sha256(token),
         householdId,
         user.id,
         now.toISOString(),
         expiresAt.toISOString(),
       );
-      db.exec('COMMIT');
-    } catch (err) {
-      db.exec('ROLLBACK');
-      throw err;
-    }
+    });
     return c.json({ url: `${origin(c)}/join/${token}`, expiresAt: expiresAt.toISOString() });
   });
 
-  app.delete('/api/households/:hid/invite', (c) => {
-    const { householdId, role } = requireMember(c);
+  app.delete('/api/households/:hid/invite', async (c) => {
+    const { householdId, role } = await requireMember(c);
     if (!INVITER_ROLES.includes(role)) throw new HttpError(403, 'forbidden');
-    db.prepare('UPDATE invites SET revoked = 1 WHERE household_id = ?').run(householdId);
+    await db.run('UPDATE invites SET revoked = 1 WHERE household_id = ?', householdId);
     return c.json({ ok: true });
   });
 
-  const findInvite = (token: string) => {
+  const findInvite = async (token: string) => {
     if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return undefined;
-    const row = db
-      .prepare('SELECT household_id, created_by, expires_at, revoked FROM invites WHERE token_hash = ?')
-      .get(sha256(token)) as { household_id: string; created_by: string; expires_at: string; revoked: number } | undefined;
-    if (!row || row.revoked || row.expires_at < new Date().toISOString()) return undefined;
+    const row = await db.get<{ household_id: string; created_by: string; expires_at: string; revoked: number }>(
+      'SELECT household_id, created_by, expires_at, revoked FROM invites WHERE token_hash = ?',
+      sha256(token),
+    );
+    if (!row || Number(row.revoked) || row.expires_at < new Date().toISOString()) return undefined;
     return row;
   };
 
-  app.get('/api/invites/:token', (c) => {
+  app.get('/api/invites/:token', async (c) => {
     limit(limits.invite, ip(c));
-    const invite = findInvite(c.req.param('token'));
+    const invite = await findInvite(c.req.param('token'));
     if (!invite) throw new HttpError(404, 'invite_invalid');
-    const home = store.get(invite.household_id);
+    const home = await store.get(invite.household_id);
     if (!home) throw new HttpError(404, 'invite_invalid');
     const user = c.get('user');
     // Only what someone holding the link needs to decide: no member list, no data.
@@ -346,17 +353,17 @@ export function createServer(options: ServerOptions) {
     });
   });
 
-  app.post('/api/invites/:token/accept', (c) => {
+  app.post('/api/invites/:token/accept', async (c) => {
     const user = requireUser(c);
     limit(limits.invite, ip(c));
-    const invite = findInvite(c.req.param('token'));
+    const invite = await findInvite(c.req.param('token'));
     if (!invite) throw new HttpError(404, 'invite_invalid');
-    const home = store.get(invite.household_id)!;
+    const home = (await store.get(invite.household_id))!;
     if (!home.platform.acl.roleOf(user.id, invite.household_id)) {
       if (home.platform.acl.members(invite.household_id).length >= 20) throw bad('household_full');
       const kind = home.platform.graph.requireNode(invite.household_id).props.kind;
-      store.addMember(invite.household_id, user, kind === 'family' ? 'family_member' : 'tenant');
-      insertSystem(invite.household_id, { key: 'joined', params: { name: user.name } });
+      await store.addMember(invite.household_id, user, kind === 'family' ? 'family_member' : 'tenant');
+      await insertSystem(invite.household_id, { key: 'joined', params: { name: user.name } });
       hub.publish(invite.household_id, { type: 'changed', area: 'members' });
     }
     return c.json({ householdId: invite.household_id });
@@ -364,28 +371,28 @@ export function createServer(options: ServerOptions) {
 
   // ── Files ────────────────────────────────────────────────────────────
   app.post('/api/households/:hid/files', async (c) => {
-    const { user, householdId } = requireMember(c);
+    const { user, householdId } = await requireMember(c);
     limit(limits.upload, user.id);
     const declared = Number(c.req.header('Content-Length') ?? 0);
     if (declared > MAX_UPLOAD_BYTES) throw new HttpError(413, 'file_too_large');
-    const used = (db.prepare('SELECT COALESCE(SUM(size), 0) AS s FROM files WHERE household_id = ?').get(householdId) as { s: number }).s;
-    if (used + declared > HOUSEHOLD_QUOTA_BYTES) throw new HttpError(413, 'storage_full');
+    const used = await files.usage(householdId);
+    if (used + declared > quota) throw new HttpError(413, 'storage_full');
     const bytes = new Uint8Array(await readLimited(c.req.raw, MAX_UPLOAD_BYTES));
-    if (used + bytes.byteLength > HOUSEHOLD_QUOTA_BYTES) throw new HttpError(413, 'storage_full');
-    const saved = files.save({ householdId, uploaderId: user.id, bytes, name: c.req.header('X-File-Name') });
+    if (used + bytes.byteLength > quota) throw new HttpError(413, 'storage_full');
+    const saved = await files.save({ householdId, uploaderId: user.id, bytes, name: c.req.header('X-File-Name') });
     if ('error' in saved) {
       throw new HttpError(saved.error === 'file_too_large' ? 413 : saved.error === 'unsupported_file_type' ? 415 : 400, saved.error);
     }
     return c.json(fileDto(saved), 201);
   });
 
-  app.get('/api/files/:id', (c) => {
+  app.get('/api/files/:id', async (c) => {
     const user = requireUser(c);
-    const file = files.get(c.req.param('id'));
-    if (!file || !canReadFile(user.id, file)) throw new HttpError(404, 'not_found');
+    const file = await files.get(c.req.param('id'));
+    if (!file || !(await canReadFile(user.id, file))) throw new HttpError(404, 'not_found');
     const isImage = file.mime.startsWith('image/');
     const disposition = `${isImage && c.req.query('download') === undefined ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`;
-    return new Response(new Uint8Array(files.read(file)), {
+    return new Response(new Uint8Array(await files.read(file)), {
       headers: {
         'Content-Type': file.mime,
         'Content-Length': String(file.size),
@@ -401,22 +408,24 @@ export function createServer(options: ServerOptions) {
    * A member can download a file if they uploaded it, it is in the
    * household chat, or it is attached to a library item they can read.
    */
-  function canReadFile(userId: string, file: StoredFile): boolean {
-    const home = store.get(file.household_id);
+  async function canReadFile(userId: string, file: StoredFile): Promise<boolean> {
+    const home = await store.get(file.household_id);
     if (!home?.platform.acl.roleOf(userId, file.household_id)) return false;
     if (file.uploader_id === userId) return true;
-    if (db.prepare('SELECT 1 FROM messages WHERE household_id = ? AND file_id = ?').get(file.household_id, file.id)) return true;
+    if (await db.get('SELECT 1 AS x FROM messages WHERE household_id = ? AND file_id = ?', file.household_id, file.id)) return true;
     return home.items.referencing(file.household_id, file.id).some((item) => home.platform.acl.canRead(userId, item));
   }
 
   /** Attachments must be the actor's own uploads in this household — no borrowing someone else's private file. */
-  function ownUploads(userId: string, householdId: string, fileIds: string[], alreadyAttached: string[] = []) {
-    return fileIds.map((id) => {
-      const file = files.get(id);
+  async function ownUploads(userId: string, householdId: string, fileIds: string[], alreadyAttached: string[] = []) {
+    const out = [];
+    for (const id of fileIds) {
+      const file = await files.get(id);
       const ok = file && file.household_id === householdId && (file.uploader_id === userId || alreadyAttached.includes(id));
       if (!ok) throw bad('attachment_invalid');
-      return { fileId: file.id, name: file.name, mime: file.mime, size: file.size };
-    });
+      out.push({ fileId: file.id, name: file.name, mime: file.mime, size: file.size });
+    }
+    return out;
   }
 
   // ── Chat ─────────────────────────────────────────────────────────────
@@ -442,10 +451,12 @@ export function createServer(options: ServerOptions) {
   }
   const insertSystem = (householdId: string, system: SystemMessage) => insertMessage(householdId, null, '', undefined, system);
 
-  function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string, system?: SystemMessage) {
-    const seq =
-      ((db.prepare('SELECT MAX(seq) AS s FROM messages WHERE household_id = ?').get(householdId) as { s: number | null }).s ?? 0) + 1;
-    const row: MessageRow = {
+  /** Numbers each household's messages 1, 2, 3… — serialised so two senders never get the same number. */
+  async function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string, system?: SystemMessage) {
+    const row = await store.withLock(`messages:${householdId}`, async () => {
+      const last = await db.get<{ s: number | string | null }>('SELECT MAX(seq) AS s FROM messages WHERE household_id = ?', householdId);
+      const seq = Number(last?.s ?? 0) + 1;
+      const row: MessageRow = {
       id: `m_${randomUUID()}`,
       household_id: householdId,
       user_id: userId,
@@ -454,28 +465,31 @@ export function createServer(options: ServerOptions) {
       created_at: new Date().toISOString(),
       seq,
       meta: system ? JSON.stringify(system) : null,
-    };
-    db.prepare('INSERT INTO messages (id, household_id, user_id, text, file_id, created_at, seq, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      row.id,
-      row.household_id,
-      row.user_id,
-      row.text,
-      row.file_id,
-      row.created_at,
-      row.seq,
-      row.meta,
-    );
-    const dto = messageDto(row);
+      };
+      await db.run(
+        'INSERT INTO messages (id, household_id, user_id, text, file_id, created_at, seq, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        row.id,
+        row.household_id,
+        row.user_id,
+        row.text,
+        row.file_id,
+        row.created_at,
+        row.seq,
+        row.meta,
+      );
+      return row;
+    });
+    const dto = await messageDto(row);
     hub.publish(householdId, { type: 'message', message: dto });
     return dto;
   }
 
-  function messageDto(row: MessageRow) {
-    const home = store.get(row.household_id);
-    const file = row.file_id ? files.get(row.file_id) : undefined;
+  async function messageDto(row: MessageRow) {
+    const home = await store.get(row.household_id);
+    const file = row.file_id ? await files.get(row.file_id) : undefined;
     return {
       id: row.id,
-      seq: row.seq,
+      seq: Number(row.seq),
       userId: row.user_id,
       userName: row.user_id ? (home?.platform.graph.getNode(row.user_id)?.label ?? '?') : null,
       text: row.text,
@@ -485,43 +499,44 @@ export function createServer(options: ServerOptions) {
     };
   }
 
-  app.get('/api/households/:hid/messages', (c) => {
-    const { householdId } = requireMember(c);
-    const before = Number(c.req.query('before') ?? Number.MAX_SAFE_INTEGER);
-    const after = Number(c.req.query('after') ?? 0);
-    const rows = db
-      .prepare(
-        `SELECT * FROM messages WHERE household_id = ? AND seq < ? AND seq > ? ORDER BY seq DESC LIMIT 50`,
-      )
-      .all(householdId, Number.isFinite(before) ? before : Number.MAX_SAFE_INTEGER, Number.isFinite(after) ? after : 0) as unknown as MessageRow[];
-    return c.json({ messages: rows.reverse().map(messageDto), hasMore: rows.length === 50 });
+  app.get('/api/households/:hid/messages', async (c) => {
+    const { householdId } = await requireMember(c);
+    // seq is a 32-bit INTEGER in Postgres, so clamp the bounds into range.
+    const clamp = (v: number, fallback: number) => (Number.isFinite(v) ? Math.max(0, Math.min(Math.trunc(v), 2_000_000_000)) : fallback);
+    const before = clamp(Number(c.req.query('before') ?? NaN), 2_000_000_000);
+    const after = clamp(Number(c.req.query('after') ?? 0), 0);
+    const rows = await db.all<MessageRow>(
+      'SELECT * FROM messages WHERE household_id = ? AND seq < ? AND seq > ? ORDER BY seq DESC LIMIT 50',
+      householdId,
+      before,
+      after,
+    );
+    return c.json({ messages: await Promise.all(rows.reverse().map(messageDto)), hasMore: rows.length === 50 });
   });
 
   app.post('/api/households/:hid/messages', async (c) => {
-    const { user, householdId } = requireMember(c);
+    const { user, householdId } = await requireMember(c);
     limit(limits.message, user.id);
     const data = await body(c);
     const text = str(data.text, { max: 4000, field: 'text' }) ?? '';
     const fileId = str(data.fileId, { max: 100, field: 'fileId' });
     if (!text && !fileId) throw bad('message_empty');
-    if (fileId && !ownUploads(user.id, householdId, [fileId])[0]!.mime.startsWith('image/')) throw bad('chat_images_only');
-    return c.json(insertMessage(householdId, user.id, text, fileId), 201);
+    if (fileId && !(await ownUploads(user.id, householdId, [fileId]))[0]!.mime.startsWith('image/')) throw bad('chat_images_only');
+    return c.json(await insertMessage(householdId, user.id, text, fileId), 201);
   });
 
-  app.delete('/api/households/:hid/messages/:mid', (c) => {
-    const { user, householdId } = requireMember(c);
-    const row = db.prepare('SELECT * FROM messages WHERE id = ? AND household_id = ?').get(c.req.param('mid'), householdId) as
-      | MessageRow
-      | undefined;
+  app.delete('/api/households/:hid/messages/:mid', async (c) => {
+    const { user, householdId } = await requireMember(c);
+    const row = await db.get<MessageRow>('SELECT * FROM messages WHERE id = ? AND household_id = ?', c.req.param('mid'), householdId);
     if (!row) throw new HttpError(404, 'not_found');
     if (row.user_id !== user.id) throw new HttpError(403, 'forbidden');
-    db.prepare('DELETE FROM messages WHERE id = ?').run(row.id);
+    await db.run('DELETE FROM messages WHERE id = ?', row.id);
     hub.publish(householdId, { type: 'message_deleted', id: row.id });
     return c.json({ ok: true });
   });
 
-  app.get('/api/households/:hid/events', (c) => {
-    const { user, householdId } = requireMember(c);
+  app.get('/api/households/:hid/events', async (c) => {
+    const { user, householdId } = await requireMember(c);
     c.header('Cache-Control', 'no-cache, no-transform');
     c.header('X-Accel-Buffering', 'no');
     return streamSSE(c, async (stream) => {
@@ -542,7 +557,7 @@ export function createServer(options: ServerOptions) {
       while (open && !stream.aborted) {
         await stream.sleep(20_000);
         // Membership can be revoked while the stream is open.
-        if (!store.roleOf(householdId, user.id)) break;
+        if (!(await store.roleOf(householdId, user.id))) break;
         if (open) await stream.writeSSE({ event: 'ping', data: '' });
       }
       unsubscribe();
@@ -571,8 +586,8 @@ export function createServer(options: ServerOptions) {
     };
   }
 
-  app.get('/api/households/:hid/items', (c) => {
-    const { user, householdId, home } = requireMember(c);
+  app.get('/api/households/:hid/items', async (c) => {
+    const { user, householdId, home } = await requireMember(c);
     const q = c.req.query('q')?.slice(0, 200);
     const tag = c.req.query('tag')?.slice(0, 40);
     const kind = c.req.query('kind');
@@ -588,10 +603,10 @@ export function createServer(options: ServerOptions) {
   });
 
   app.post('/api/households/:hid/items', async (c) => {
-    const { user, householdId, home } = requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
     limit(limits.write, user.id);
     const data = await body(c);
-    const attachments = ownUploads(user.id, householdId, ids(data.attachmentIds, 'attachmentIds'));
+    const attachments = await ownUploads(user.id, householdId, ids(data.attachmentIds, 'attachmentIds'));
     const title = str(data.title, { max: 200, field: 'title' }) ?? attachments[0]?.name;
     if (!title) throw bad('title_required');
     const kind = oneOf(
@@ -600,7 +615,7 @@ export function createServer(options: ServerOptions) {
       'kind',
       attachments.length ? (attachments.every((a) => a.mime.startsWith('image/')) ? 'photo' : 'document') : 'note',
     );
-    const item = store.mutate(householdId, (h) =>
+    const item = await store.mutate(householdId, (h) =>
       h.items.create(user.id, householdId, {
         kind,
         title,
@@ -615,7 +630,7 @@ export function createServer(options: ServerOptions) {
   });
 
   app.patch('/api/households/:hid/items/:id', async (c) => {
-    const { user, householdId, home } = requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
     limit(limits.write, user.id);
     const data = await body(c);
     const existing = home.items.get(user.id, c.req.param('id'));
@@ -623,9 +638,9 @@ export function createServer(options: ServerOptions) {
     const attachments =
       data.attachmentIds === undefined
         ? undefined
-        : ownUploads(user.id, householdId, ids(data.attachmentIds, 'attachmentIds'), existing.props.attachments.map((a) => a.fileId));
+        : await ownUploads(user.id, householdId, ids(data.attachmentIds, 'attachmentIds'), existing.props.attachments.map((a) => a.fileId));
     if (data.private !== undefined && existing.ownerId !== user.id) throw new HttpError(403, 'forbidden');
-    const item = store.mutate(householdId, (h) =>
+    const item = await store.mutate(householdId, (h) =>
       h.items.update(user.id, existing.id, {
         title: str(data.title, { max: 200, field: 'title' }),
         body: data.body === undefined ? undefined : (str(data.body, { max: 20_000, field: 'body' }) ?? ''),
@@ -638,23 +653,22 @@ export function createServer(options: ServerOptions) {
     return c.json(itemDto(home, user.id, householdId, item));
   });
 
-  app.delete('/api/households/:hid/items/:id', (c) => {
-    const { user, householdId, home } = requireMember(c);
+  app.delete('/api/households/:hid/items/:id', async (c) => {
+    const { user, householdId, home } = await requireMember(c);
     const existing = home.items.get(user.id, c.req.param('id'));
     if (existing.householdId !== householdId) throw new HttpError(404, 'not_found');
-    const removed = store.mutate(householdId, (h) => h.items.remove(user.id, existing.id));
+    const removed = await store.mutate(householdId, (h) => h.items.remove(user.id, existing.id));
     for (const a of removed.props.attachments) {
       const stillUsed =
-        home.items.referencing(householdId, a.fileId).length > 0 ||
-        db.prepare('SELECT 1 FROM messages WHERE file_id = ?').get(a.fileId);
-      if (!stillUsed) files.remove(a.fileId);
+        home.items.referencing(householdId, a.fileId).length > 0 || (await db.get('SELECT 1 AS x FROM messages WHERE file_id = ?', a.fileId));
+      if (!stillUsed) await files.remove(a.fileId);
     }
     hub.publish(householdId, { type: 'changed', area: 'library' });
     return c.json({ ok: true });
   });
 
   // ── Bills & money ────────────────────────────────────────────────────
-  function moneyView(home: HomeApp, userId: string, householdId: string) {
+  async function moneyView(home: HomeApp, userId: string, householdId: string) {
     const f = home.finance;
     const isOwner = home.platform.acl.roleOf(userId, householdId) === 'owner';
     const bills = home.platform.acl
@@ -699,7 +713,7 @@ export function createServer(options: ServerOptions) {
       }));
     return {
       currency: String(home.platform.graph.requireNode(householdId).props.currency),
-      members: members(home, householdId, auth),
+      members: await members(home, householdId, auth),
       bills,
       expenses,
       balances: f.balances(userId, householdId),
@@ -723,13 +737,13 @@ export function createServer(options: ServerOptions) {
 
   const moneyChanged = (householdId: string) => hub.publish(householdId, { type: 'changed', area: 'bills' });
 
-  app.get('/api/households/:hid/money', (c) => {
-    const { user, householdId, home } = requireMember(c);
-    return c.json(moneyView(home, user.id, householdId));
+  app.get('/api/households/:hid/money', async (c) => {
+    const { user, householdId, home } = await requireMember(c);
+    return c.json(await moneyView(home, user.id, householdId));
   });
 
   app.post('/api/households/:hid/bills', async (c) => {
-    const { user, householdId, home } = requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
     limit(limits.write, user.id);
     const data = await body(c);
     const category = oneOf(data.category, BILL_CATEGORIES, 'category', 'other');
@@ -745,50 +759,50 @@ export function createServer(options: ServerOptions) {
       responsible: memberSubset(home, householdId, data.responsible, 'responsible'),
     };
     if (input.periodStart && input.periodEnd && input.periodStart > input.periodEnd) throw bad('period_invalid');
-    const bill = store.mutate(householdId, (h) => h.finance.recordBill(user.id, householdId, input));
+    const bill = await store.mutate(householdId, (h) => h.finance.recordBill(user.id, householdId, input));
     moneyChanged(householdId);
     if (bill.props.shared) {
-      insertSystem(householdId, {
+      await insertSystem(householdId, {
         key: 'billAdded',
         params: { name: user.name, label: bill.label, amount: bill.props.amount, currency: bill.props.currency, date: bill.props.dueDate },
       });
     }
-    return c.json(moneyView(store.get(householdId)!, user.id, householdId), 201);
+    return c.json(await moneyView(home, user.id, householdId), 201);
   });
 
   app.post('/api/households/:hid/bills/:id/pay', async (c) => {
-    const { user, householdId, home } = requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
     const data = await body(c).catch(() => ({}) as Record<string, unknown>);
     const bill = home.platform.graph.getNode<BillProps>(c.req.param('id'));
     if (!bill || bill.type !== 'bill' || bill.householdId !== householdId || !home.platform.acl.canRead(user.id, bill)) {
       throw new HttpError(404, 'not_found');
     }
     const payerId = data.payerId === undefined ? user.id : memberSubset(home, householdId, [data.payerId], 'payerId')![0]!;
-    store.mutate(householdId, (h) => h.finance.payBill(user.id, bill.id, payerId));
+    await store.mutate(householdId, (h) => h.finance.payBill(user.id, bill.id, payerId));
     moneyChanged(householdId);
     if (bill.props.shared) {
       const payer = payerId === user.id ? user.name : (home.platform.graph.getNode(payerId)?.label ?? '?');
-      insertSystem(householdId, {
+      await insertSystem(householdId, {
         key: 'billPaid',
         params: { actor: user.name, payer, label: bill.label, amount: bill.props.amount, currency: bill.props.currency },
       });
     }
-    return c.json(moneyView(home, user.id, householdId));
+    return c.json(await moneyView(home, user.id, householdId));
   });
 
-  app.post('/api/households/:hid/bills/:id/unpay', (c) => {
-    const { user, householdId, home } = requireMember(c);
+  app.post('/api/households/:hid/bills/:id/unpay', async (c) => {
+    const { user, householdId, home } = await requireMember(c);
     const bill = home.platform.graph.getNode<BillProps>(c.req.param('id'));
     if (!bill || bill.type !== 'bill' || bill.householdId !== householdId || !home.platform.acl.canRead(user.id, bill)) {
       throw new HttpError(404, 'not_found');
     }
-    store.mutate(householdId, (h) => h.finance.unpayBill(user.id, bill.id));
+    await store.mutate(householdId, (h) => h.finance.unpayBill(user.id, bill.id));
     moneyChanged(householdId);
-    return c.json(moneyView(home, user.id, householdId));
+    return c.json(await moneyView(home, user.id, householdId));
   });
 
   app.post('/api/households/:hid/expenses', async (c) => {
-    const { user, householdId, home } = requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
     limit(limits.write, user.id);
     const data = await body(c);
     const shared = bool(data.shared, false);
@@ -803,34 +817,34 @@ export function createServer(options: ServerOptions) {
       paidBy,
       participants: shared ? memberSubset(home, householdId, data.participants, 'participants') : undefined,
     };
-    store.mutate(householdId, (h) => h.finance.recordExpense(user.id, householdId, input));
+    await store.mutate(householdId, (h) => h.finance.recordExpense(user.id, householdId, input));
     if (shared) moneyChanged(householdId);
-    return c.json(moneyView(home, user.id, householdId), 201);
+    return c.json(await moneyView(home, user.id, householdId), 201);
   });
 
   app.post('/api/households/:hid/settlements', async (c) => {
-    const { user, householdId, home } = requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
     limit(limits.write, user.id);
     const data = await body(c);
     const [from] = memberSubset(home, householdId, [data.from], 'from')!;
     const [to] = memberSubset(home, householdId, [data.to], 'to')!;
     if (from === to) throw bad('to_invalid');
     const value = amount(data.amount);
-    store.mutate(householdId, (h) => h.finance.recordSettlement(user.id, householdId, { from: from!, to: to!, amount: value }));
+    await store.mutate(householdId, (h) => h.finance.recordSettlement(user.id, householdId, { from: from!, to: to!, amount: value }));
     moneyChanged(householdId);
     const nameOf = (id: string) => home.platform.graph.getNode(id)?.label ?? '?';
     const currency = String(home.platform.graph.requireNode(householdId).props.currency);
-    insertSystem(householdId, { key: 'settled', params: { actor: user.name, from: nameOf(from!), to: nameOf(to!), amount: value, currency } });
-    return c.json(moneyView(home, user.id, householdId), 201);
+    await insertSystem(householdId, { key: 'settled', params: { actor: user.name, from: nameOf(from!), to: nameOf(to!), amount: value, currency } });
+    return c.json(await moneyView(home, user.id, householdId), 201);
   });
 
-  app.delete('/api/households/:hid/money/:id', (c) => {
-    const { user, householdId, home } = requireMember(c);
+  app.delete('/api/households/:hid/money/:id', async (c) => {
+    const { user, householdId, home } = await requireMember(c);
     const node = home.platform.graph.getNode(c.req.param('id'));
     if (!node || node.householdId !== householdId || !home.platform.acl.canRead(user.id, node)) throw new HttpError(404, 'not_found');
-    store.mutate(householdId, (h) => h.finance.remove(user.id, node.id));
+    await store.mutate(householdId, (h) => h.finance.remove(user.id, node.id));
     moneyChanged(householdId);
-    return c.json(moneyView(home, user.id, householdId));
+    return c.json(await moneyView(home, user.id, householdId));
   });
 
   app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
@@ -866,9 +880,9 @@ export function createServer(options: ServerOptions) {
   return { app, db, store, hub };
 }
 
-function members(home: HomeApp, householdId: string, auth: Auth) {
+async function members(home: HomeApp, householdId: string, auth: Auth) {
   const list = home.platform.acl.members(householdId);
-  const avatars = auth.avatars(list.map((m) => m.userId));
+  const avatars = await auth.avatars(list.map((m) => m.userId));
   return list.map((m) => ({
     id: m.userId,
     name: home.platform.graph.getNode<PersonProps>(m.userId)?.label ?? '?',

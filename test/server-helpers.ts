@@ -1,14 +1,28 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
 import { createServer } from '../server/app.js';
+import { openPostgres, type Database } from '../server/database.js';
 
-export function testServer() {
-  const dataDir = mkdtempSync(join(tmpdir(), 'homeapp-test-'));
-  return { ...createServer({ dataDir }), dataDir };
+/** TEST_DB=pglite runs the same server tests against real Postgres (PGlite, in-process). */
+export async function testDatabase(): Promise<Database | undefined> {
+  if (process.env.TEST_DB !== 'pglite') return undefined;
+  const pg = new PGlite();
+  return openPostgres({
+    query: (text, params) => pg.query(text, params as unknown[]),
+    withTransaction: (fn) => pg.transaction((tx) => fn({ query: (text, params) => tx.query(text, params as unknown[]) })),
+    end: () => pg.close(),
+  });
 }
 
-export type Server = ReturnType<typeof testServer>;
+export async function testServer(options: { trustProxy?: boolean; dataDir?: string; db?: Database } = {}) {
+  const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), 'homeapp-test-'));
+  const db = options.db ?? (await testDatabase());
+  return { ...(await createServer({ dataDir, db, trustProxy: options.trustProxy })), dataDir };
+}
+
+export type Server = Awaited<ReturnType<typeof testServer>>;
 
 /** A browser-like client: keeps its session cookie and sends the CSRF header. */
 export class Client {

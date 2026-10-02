@@ -231,7 +231,40 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 .badge.danger { background: var(--danger-soft); color: var(--danger); }
 .badge.ok { background: var(--accent-soft); color: var(--accent-text); }
-.avatar { border-radius: 50%; display: grid; place-items: center; font-weight: 600; color: #fff; flex: none; object-fit: cover; letter-spacing: 0; }
+/* ── Characters ─────────────────────────────────────────────
+ * Every figure: .figure (moods: bounce / wave) > .figure-body (breathing)
+ * > frames. Real art is transparent ink on a square canvas; extra frames
+ * (blink, wave) sit exactly on top and are revealed by opacity.
+ */
+.figure { position: relative; display: inline-block; width: var(--size); height: var(--size); flex: none; }
+.figure-body { position: absolute; inset: 0; transform-origin: 50% 92%; }
+.figure .frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.figure .frame.blink, .figure .frame.wave { opacity: 0; }
+.figure .placeholder { position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center; font-weight: 600; color: #fff; letter-spacing: 0; }
+.tom-sketch { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--text); border-radius: 50%; overflow: hidden; }
+.tom-sketch .eyes { transform-box: fill-box; transform-origin: center; }
+.tom-sketch .hand { transform-box: view-box; transform-origin: 78px 99px; }
+
+/* idle: breathe + blink (frame or sketch eyes) */
+.mood-idle .figure-body { animation: breathe 4.6s ease-in-out infinite; animation-delay: var(--delay); }
+.mood-idle .frame.blink { animation: blink-frame 5.3s step-end infinite; animation-delay: var(--delay); }
+.mood-idle .tom-sketch .eyes, .mood-wave .tom-sketch .eyes { animation: blink-eyes 5.3s ease-in-out infinite; animation-delay: var(--delay); }
+@keyframes breathe { 50% { transform: translateY(-1.5%) scale(1.02, 1.03); } }
+@keyframes blink-frame { 0% { opacity: 0; } 94% { opacity: 1; } 97% { opacity: 0; } }
+@keyframes blink-eyes { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+
+/* wave: a wave frame if the art has one, otherwise a friendly wiggle; then breathe */
+.mood-wave .figure-body { animation: breathe 4.6s ease-in-out 1.8s infinite; }
+.mood-wave:not(.has-wave-frame) .figure-body { animation: wiggle 1.2s ease-in-out 2, breathe 4.6s ease-in-out 2.4s infinite; }
+.mood-wave .frame.wave { animation: wave-frame 0.4s step-end 4; }
+.mood-wave .tom-sketch .hand { animation: wave-hand 0.5s ease-in-out 4 alternate; }
+@keyframes wiggle { 25% { transform: rotate(-7deg); } 75% { transform: rotate(7deg); } }
+@keyframes wave-frame { 0% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes wave-hand { from { transform: rotate(-12deg); } to { transform: rotate(18deg); } }
+
+/* bounce: one hop, e.g. when their message arrives */
+.mood-bounce { animation: hop 0.6s cubic-bezier(0.3, 1.6, 0.5, 1); }
+@keyframes hop { 0% { transform: translateY(0); } 35% { transform: translateY(-28%) scaleY(1.04); } 65% { transform: translateY(0) scaleY(0.94); } 100% { transform: none; } }
 
 .transfer { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
 .transfer:first-of-type { border-top: 0; padding-top: 0; }
@@ -241,11 +274,15 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 /* ── Character picker ───────────────────────────────────── */
 .picker { border: 0; padding: 0; margin: 0 0 20px; }
 .picker legend { font-size: 14px; font-weight: 550; color: var(--muted); margin-bottom: 8px; padding: 0; }
-.picker-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.picker-option { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); text-align: center; line-height: 1.25; transition: all 0.15s; }
+.picker-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.picker-option { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 2px; min-width: 0; overflow: hidden; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 500; color: var(--muted); text-align: center; line-height: 1.25; transition: all 0.15s; }
 .picker-option[aria-checked='true'] { border-color: var(--ink); color: var(--text); box-shadow: 0 0 0 1px var(--ink); }
-.picker-option[aria-checked='true'] .avatar { transform: scale(1.05); }
-.picker-option .avatar { transition: transform 0.2s var(--ease); }
+/* Mascot speech bubble on the welcome screen */
+.mascot { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 20px; }
+.speech { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 16px 16px 16px 4px; padding: 10px 14px; font-size: 15px; color: var(--text); animation: rise 0.5s var(--ease) 0.4s both; }
+.wordmark { font-size: 44px; font-weight: 750; letter-spacing: 0.08em; line-height: 1; margin: 0 0 8px; }
+.acronym { font-size: 14px; font-weight: 550; letter-spacing: 0.02em; color: var(--faint); margin: 0 0 14px; }
+.acronym b { color: var(--text); font-weight: 700; }
 
 /* ── Floating action ────────────────────────────────────── */
 .fab {

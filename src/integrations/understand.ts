@@ -110,13 +110,13 @@ const CARRIER_MENTIONS: [string, RegExp][] = [
 
 const BILL_KEYWORDS: [BillCategory, RegExp][] = [
   // Phone first: "hóa đơn điện thoại" must not be read as electricity.
-  ['phone', /điện thoại|cước di động|mobile plan|phone bill|mobile bill/i],
-  ['electricity', /electricity|electric|power bill|energy bill|kwh|tiền điện|hóa đơn điện|hoá đơn điện|điện lực|\bevn\b/i],
-  ['water', /water bill|water usage|water service|tiền nước|cấp nước|nước sạch|hóa đơn nước|hoá đơn nước/i],
-  ['gas', /\bgas bill\b|gas usage|\bgas\b.*\b(?:account|supply)\b|tiền ga|tiền gas/i],
-  ['internet', /internet|broadband|\bnbn\b|wi-?fi|fib(?:er|re)|cáp quang|cước mạng/i],
-  ['rent', /\brent\b|rental|tiền nhà|tiền thuê|thuê nhà|tiền phòng/i],
-  ['insurance', /insurance|policy renewal|bảo hiểm/i],
+  ['phone', /điện thoại|cước di động|mobile plan|phone bill|mobile bill|téléphon|forfait mobile|mobilfunk|handyrechnung|telefonrechnung|telefoon|mobiel abonnement/i],
+  ['electricity', /electricity|electric|power bill|energy bill|kwh|tiền điện|hóa đơn điện|hoá đơn điện|điện lực|\bevn\b|électricité|electricite|\bstrom|stroom|elektriciteit/i],
+  ['water', /water bill|water usage|water service|tiền nước|cấp nước|nước sạch|hóa đơn nước|hoá đơn nước|\beau\b|wasser|waterrekening|\bwater\b/i],
+  ['gas', /\bgas bill\b|gas usage|\bgas\b.*\b(?:account|supply)\b|tiền ga|tiền gas|\bgaz\b|gasrechnung|gasrekening/i],
+  ['internet', /internet|broadband|\bnbn\b|wi-?fi|fib(?:er|re)|cáp quang|cước mạng|glasvezel/i],
+  ['rent', /\brent\b|rental|tiền nhà|tiền thuê|thuê nhà|tiền phòng|\bloyer\b|\bmiete\b|\bhuur\b/i],
+  ['insurance', /insurance|policy renewal|bảo hiểm|assurance|versicherung|verzekering/i],
 ];
 
 const AMOUNT_LABELS: RegExp[] = [
@@ -125,35 +125,44 @@ const AMOUNT_LABELS: RegExp[] = [
   /tổng thanh toán/i,
   /total amount due|amount due|total due|balance due|amount payable|total payable|please pay|amount to pay/i,
   /số tiền thanh toán/i,
+  /montant (?:total )?(?:à payer|à régler|dû|ttc)|net à payer|total à payer|somme à payer/i,
+  /zu zahlender betrag|zahlbetrag|rechnungsbetrag|gesamtbetrag|endbetrag/i,
+  /te betalen bedrag|totaal te betalen|te betalen|totaalbedrag/i,
   /grand total|order total|total paid|total amount|new charges/i,
   /tổng cộng|tổng tiền|thành tiền/i,
-  /\btotal\b/i,
+  /\btotal\b|\btotaal\b|\bmontant\b|\bbetrag\b|\bbedrag\b/i,
   /số tiền/i,
 ];
 
 const DUE_LABELS =
-  /due date|payment due|due by|due on|pay by|please pay by|\bdue\b|hạn thanh toán|hạn chót|hạn nộp|ngày đến hạn|ngày hết hạn|thanh toán trước(?: ngày)?/i;
+  /due date|payment due|due by|due on|pay by|please pay by|\bdue\b|hạn thanh toán|hạn chót|hạn nộp|ngày đến hạn|ngày hết hạn|thanh toán trước(?: ngày)?|date d['’]échéance|échéance|à (?:payer|régler) avant le|payable avant le|fällig am|fällig bis|zahlbar bis|fälligkeitsdatum|fällig|vervaldatum|uiterste betaaldatum|te betalen vóór|te betalen voor|betalen voor/i;
 const PERIOD_LABELS =
-  /billing period|bill period|service period|supply period|usage period|billing cycle|\bperiod\b|kỳ thanh toán|kỳ hóa đơn|kỳ hoá đơn|kỳ cước|kỳ sử dụng/i;
+  /billing period|bill period|service period|supply period|usage period|billing cycle|\bperiod\b|kỳ thanh toán|kỳ hóa đơn|kỳ hoá đơn|kỳ cước|kỳ sử dụng|période de facturation|période de consommation|\bpériode\b|abrechnungszeitraum|leistungszeitraum|\bzeitraum\b|factuurperiode|\bperiode\b/i;
 const EXPECTED_LABELS = /expected (?:delivery|on|by)?|estimated delivery|arriving|delivery date|dự kiến giao|ngày giao dự kiến/i;
 const ORDER_DATE_LABELS = /order date|purchase date|date of purchase|ngày đặt(?: hàng)?|ngày mua/i;
 
-const MONTHS: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
-};
-const MONTH_NAME = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.?';
+/** Month-name prefixes in English, French, German and Dutch (accents stripped). Longest first. */
+const MONTHS: [string, number][] = [
+  ['janv', 1], ['jan', 1], ['fevr', 2], ['fev', 2], ['feb', 2], ['maart', 3], ['mars', 3], ['marz', 3], ['maerz', 3],
+  ['mrt', 3], ['mar', 3], ['avr', 4], ['apr', 4], ['mai', 5], ['may', 5], ['mei', 5], ['juin', 6], ['jun', 6],
+  ['juil', 7], ['jul', 7], ['aout', 8], ['aug', 8], ['sept', 9], ['sep', 9], ['oct', 10], ['okt', 10], ['nov', 11],
+  ['dec', 12], ['dez', 12],
+];
+const monthOf = (word: string) => MONTHS.find(([prefix]) => word.startsWith(prefix))?.[1];
+const MONTH_NAME =
+  '(?:janv|jan|f[eé]vr?|feb|maart|mars|m[aä]rz|maerz|mrt|mar|avr|apr|mai|may|mei|juin|jun|juil|jul|ao[uû]t|aug|sept|sep|oct|okt|nov|d[eé]c|dez)\\p{L}*\\.?';
 const DATE_SOURCE = [
   '\\d{4}-\\d{1,2}-\\d{1,2}',
   '\\d{1,2}[/.\\-]\\d{1,2}[/.\\-]\\d{2,4}',
-  `\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH_NAME},?(?:\\s+\\d{4})?`,
+  `\\d{1,2}(?:st|nd|rd|th|er|\\.)?\\s+${MONTH_NAME},?(?:\\s+\\d{4})?`,
   `${MONTH_NAME}\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+\\d{4})?`,
   '(?:ngày\\s*)?\\d{1,2}\\s*tháng\\s*\\d{1,2}(?:\\s*(?:năm|,)\\s*\\d{4})?',
   '\\d{1,2}/\\d{1,2}(?![/\\d])',
 ].join('|');
-const dateRe = () => new RegExp(`(?<![\\d.,])(?:${DATE_SOURCE})(?![\\d.,]\\d)`, 'gi');
+const dateRe = () => new RegExp(`(?<![\\d.,])(?:${DATE_SOURCE})(?![\\d.,]\\d)`, 'giu');
 
 const MONEY_RE =
-  /(?:(A\$|AU\$|US\$|NZ\$|[$£€₫]|\b(?:AUD|USD|EUR|GBP|VND|NZD|SGD|CAD|JPY)\b)\s?)?(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\s?(đồng|vnđ|vnd|đ|₫|aud|usd|eur|gbp|nzd|sgd)\b|\s?(đ|₫))?/gi;
+  /(?:(A\$|AU\$|US\$|NZ\$|[$£€₫]|\b(?:AUD|USD|EUR|GBP|VND|NZD|SGD|CAD|JPY)\b)\s?)?(\d{1,3}(?: \d{3})+,\d{2}|\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\s?(đồng|vnđ|vnd|đ|₫|aud|usd|eur|gbp|nzd|sgd)\b|\s?(đ|₫|€|£))?/gi;
 
 const SYMBOL_CURRENCY: Record<string, string> = {
   'a$': 'AUD', 'au$': 'AUD', 'us$': 'USD', 'nz$': 'NZD', '£': 'GBP', '€': 'EUR', '₫': 'VND', 'đ': 'VND', 'đồng': 'VND', 'vnđ': 'VND',
@@ -289,12 +298,12 @@ export class RuleBasedExtractor implements Extractor {
       const dates = [...window.matchAll(dateRe())].slice(0, 2);
       if (dates.length < 2) return undefined;
       const between = window.slice(dates[0]!.index! + dates[0]![0].length, dates[1]!.index!);
-      if (!/^\s*(?:-|to|until|đến|tới|~)\s*(?:ngày\s*)?$/i.test(between)) return undefined;
+      if (!/^\s*(?:-|to|until|đến|tới|~|au|bis|t\/m|tot(?: en met)?)\s*(?:ngày|le\s*)?\s*$/i.test(between)) return undefined;
       return orderedPeriod(dates[0]![0], dates[1]![0], year);
     };
     for (const m of text.matchAll(new RegExp(PERIOD_LABELS.source, 'gi'))) {
       const start = m.index! + m[0].length;
-      const found = pairAt(text.slice(start, start + 70).replace(/^[\s:()-]*(?:từ\s*(?:ngày)?\s*)?/i, ''));
+      const found = pairAt(text.slice(start, start + 70).replace(/^[\s:()-]*(?:từ\s*(?:ngày)?|du|vom|van)?\s*/i, ''));
       if (found) return found;
     }
     const tuNgay = /từ\s*(?:ngày)?\s*/gi;
@@ -308,7 +317,7 @@ export class RuleBasedExtractor implements Extractor {
       const a = dates[i]!;
       const b = dates[i + 1]!;
       const between = text.slice(a.index! + a[0].length, b.index!);
-      if (/^\s*(?:-|to|đến)\s*$/i.test(between)) {
+      if (/^\s*(?:-|to|đến|au|bis|t\/m|tot)\s*$/i.test(between)) {
         const found = orderedPeriod(a[0], b[0], year);
         if (found) return found;
       }
@@ -330,7 +339,14 @@ function orderedPeriod(a: string, b: string, year: number): [string, string] | u
 
 /** Parse one date token to ISO (yyyy-mm-dd). Day-first unless that is impossible. */
 export function parseDate(raw: string, refYear: number): string | undefined {
-  const s = raw.trim().toLowerCase().replace(/(\d)(st|nd|rd|th)\b/, '$1');
+  // Accent-free, lower case, without ordinal suffixes ("1st", "1er") or the German day dot ("15. Okt").
+  const s = raw
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/(\d)(st|nd|rd|th|er)\b/, '$1')
+    .replace(/^(\d{1,2})\.\s+/, '$1 ');
   let y: number | undefined;
   let m: number | undefined;
   let d: number | undefined;
@@ -341,10 +357,10 @@ export function parseDate(raw: string, refYear: number): string | undefined {
     if (m > 12 && d <= 12) [d, m] = [m, d];
     if (y < 100) y += 2000;
   } else if ((r = /^(\d{1,2})\s+([a-z]+)\.?,?(?:\s+(\d{4}))?$/.exec(s))) {
-    [d, m, y] = [+r[1]!, MONTHS[r[2]!.slice(0, 3)], r[3] ? +r[3] : refYear];
+    [d, m, y] = [+r[1]!, monthOf(r[2]!), r[3] ? +r[3] : refYear];
   } else if ((r = /^([a-z]+)\.?\s+(\d{1,2}),?(?:\s+(\d{4}))?$/.exec(s))) {
-    [m, d, y] = [MONTHS[r[1]!.slice(0, 3)], +r[2]!, r[3] ? +r[3] : refYear];
-  } else if ((r = /^(?:ngày\s*)?(\d{1,2})\s*tháng\s*(\d{1,2})(?:\s*(?:năm|,)\s*(\d{4}))?$/.exec(s))) {
+    [m, d, y] = [monthOf(r[1]!), +r[2]!, r[3] ? +r[3] : refYear];
+  } else if ((r = /^(?:ngay\s*)?(\d{1,2})\s*thang\s*(\d{1,2})(?:\s*(?:nam|,)\s*(\d{4}))?$/.exec(s))) {
     [d, m, y] = [+r[1]!, +r[2]!, r[3] ? +r[3] : refYear];
   } else if ((r = /^(\d{1,2})\/(\d{1,2})$/.exec(s))) {
     [d, m, y] = [+r[1]!, +r[2]!, refYear];
@@ -357,7 +373,8 @@ export function parseDate(raw: string, refYear: number): string | undefined {
 }
 
 /** "1,234.56" / "1.234,56" / "1.234.567" / "12.50" / "12,5" */
-export function parseAmount(raw: string): number {
+export function parseAmount(input: string): number {
+  const raw = input.replace(/\s/g, '');
   const lastSep = Math.max(raw.lastIndexOf('.'), raw.lastIndexOf(','));
   const tail = lastSep === -1 ? 0 : raw.length - lastSep - 1;
   const hasDecimals = lastSep !== -1 && (tail === 1 || tail === 2);

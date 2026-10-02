@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { Client, houseOf, testServer } from './server-helpers.js';
 
 test('bill split, payment, who owes whom, settle up — in VND', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients, users } = await houseOf(server, ['Linh', 'An', 'Bao']);
   const [linh, an, bao] = clients as [Client, Client, Client];
   const [uLinh, uAn, uBao] = users as unknown as [{ id: string }, { id: string }, { id: string }];
@@ -36,7 +36,7 @@ test('bill split, payment, who owes whom, settle up — in VND', async () => {
 });
 
 test('only expenses marked shared are split; personal ones stay private', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients, users } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   await an.post(`/api/households/${hid}/expenses`, { description: 'Cà phê', amount: 45_000 });
@@ -48,7 +48,7 @@ test('only expenses marked shared are split; personal ones stay private', async 
 });
 
 test('a personal bill is not split and not visible to housemates', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An']);
   const [linh, an] = clients as [Client, Client];
   const res = await an.post(`/api/households/${hid}/bills`, { category: 'phone', amount: 200_000, shared: false });
@@ -57,7 +57,7 @@ test('a personal bill is not split and not visible to housemates', async () => {
 });
 
 test('money input validation', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An']);
   const [linh] = clients as [Client];
   const post = (body: unknown) => linh.post(`/api/households/${hid}/bills`, body);
@@ -70,7 +70,7 @@ test('money input validation', async () => {
 });
 
 test('sample data: new homes start with samples the owner can clear', async () => {
-  const server = testServer();
+  const server = await testServer();
   const { hid, clients } = await houseOf(server, ['Linh', 'An'], { samples: true });
   const [linh, an] = clients as [Client, Client];
   assert.equal((await linh.get(`/api/households/${hid}/money`)).data.bills[0].sample, true);
@@ -84,10 +84,10 @@ test('sample data: new homes start with samples the owner can clear', async () =
 });
 
 test('sample content follows the creator’s language; avatars are characters', async () => {
-  const server = testServer();
+  const server = await testServer();
   const c = new Client(server);
-  const res = await c.post('/api/auth/signup', { name: 'Mai', email: 'mai@example.com', password: 'long enough', avatar: 'grandpa' });
-  assert.equal(res.data.user.avatar, 'grandpa');
+  const res = await c.post('/api/auth/signup', { name: 'Mai', email: 'mai@example.com', password: 'long enough', avatar: 'james' });
+  assert.equal(res.data.user.avatar, 'james');
   assert.equal((await new Client(server).post('/api/auth/signup', { name: 'X', email: 'x@example.com', password: 'long enough', avatar: 'dragon' })).data.error, 'avatar_invalid');
   const en = (await c.post('/api/households', { name: 'A', locale: 'en-AU', currency: 'AUD' })).data.id;
   const vi = (await c.post('/api/households', { name: 'B', locale: 'vi', currency: 'VND' })).data.id;
@@ -96,18 +96,20 @@ test('sample content follows the creator’s language; avatars are characters', 
   assert.ok((await titles(vi)).includes('Wi-Fi nhà mình'));
   assert.deepEqual((await c.get(`/api/households/${en}/messages`)).data.messages[0].system, { key: 'welcome' });
 
-  assert.equal((await c.patch('/api/me', { avatar: 'boy' })).data.user.avatar, 'boy');
+  assert.equal((await c.patch('/api/me', { avatar: 'nolan' })).data.user.avatar, 'nolan');
   assert.equal((await c.patch('/api/me', { avatar: '../../etc' })).status, 400);
-  assert.equal((await c.get(`/api/households/${en}`)).data.members[0].avatar, 'boy');
+  // New people start as Tom, the guide.
+  assert.equal((await new Client(server).post('/api/auth/signup', { name: 'Y', email: 'y@example.com', password: 'long enough' })).data.user.avatar, 'tom');
+  assert.equal((await c.get(`/api/households/${en}`)).data.members[0].avatar, 'nolan');
 });
 
 test('data survives a server restart', async () => {
-  const first = testServer();
+  const first = await testServer();
   const { hid, clients } = await houseOf(first, ['Linh', 'An']);
   await clients[1]!.post(`/api/households/${hid}/expenses`, { description: 'Gas', amount: 100_000, shared: true });
-  const { createServer } = await import('../server/app.js');
-  const second = createServer({ dataDir: first.dataDir });
-  const linh = new Client({ ...second, dataDir: first.dataDir });
+  // A fresh server (empty memory cache) on the same storage: same file for SQLite, same database for Postgres.
+  const second = await testServer({ dataDir: first.dataDir, db: process.env.TEST_DB === 'pglite' ? first.db : undefined });
+  const linh = new Client(second);
   linh.cookie = clients[0]!.cookie;
   const view = (await linh.get(`/api/households/${hid}/money`)).data;
   assert.equal(view.transfers[0].amount, 50_000);
