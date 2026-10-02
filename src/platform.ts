@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { HouseholdGraph } from './graph/HouseholdGraph.js';
-import type { GraphNode } from './graph/types.js';
-import { AccessControl } from './permissions/AccessControl.js';
+import { HouseholdGraph, type GraphSnapshot } from './graph/HouseholdGraph.js';
+import type { GraphNode, Visibility } from './graph/types.js';
+import { AccessControl, PermissionDeniedError } from './permissions/AccessControl.js';
 import type { Role } from './permissions/roles.js';
 
 export interface PersonProps extends Record<string, unknown> {
@@ -9,6 +9,8 @@ export interface PersonProps extends Record<string, unknown> {
   /** Dietary preferences/restrictions, e.g. ["vegetarian", "nut-free"]. */
   diet?: string[];
   email?: string;
+  /** Set when the person has left the household. */
+  left?: boolean;
 }
 
 export interface HomeProps extends Record<string, unknown> {
@@ -22,9 +24,52 @@ export class Platform {
   readonly graph: HouseholdGraph;
   readonly acl: AccessControl;
 
-  constructor(clock?: () => Date) {
-    this.graph = new HouseholdGraph(clock);
+  constructor(clock?: () => Date, graph?: HouseholdGraph) {
+    this.graph = graph ?? new HouseholdGraph(clock);
     this.acl = new AccessControl(this.graph);
+  }
+
+  snapshot(): GraphSnapshot {
+    return this.graph.toJSON();
+  }
+
+  /** Rebuild a platform from a snapshot; memberships come from `member_of` edges. */
+  static restore(snapshot: GraphSnapshot, clock?: () => Date): Platform {
+    const platform = new Platform(clock, HouseholdGraph.fromJSON(snapshot, clock));
+    for (const edge of snapshot.edges) {
+      if (edge.relation !== 'member_of') continue;
+      const person = platform.graph.getNode<PersonProps>(edge.from);
+      const role = (edge.props?.role as Role | undefined) ?? person?.props.role;
+      if (role) platform.acl.grant(edge.from, edge.to, role);
+    }
+    return platform;
+  }
+
+  /**
+   * Owner-only switch between private and household visibility, e.g. "share
+   * this order with everyone". Linked evidence (receipts) follows the node.
+   */
+  setVisibility(actorId: string, nodeId: string, visibility: Visibility, cascade = true): GraphNode {
+    const node = this.graph.requireNode(nodeId);
+    if (node.ownerId !== actorId) throw new PermissionDeniedError(actorId, 'change visibility of', nodeId);
+    node.visibility = visibility;
+    node.updatedAt = this.now();
+    if (!cascade) return node;
+    for (const doc of this.graph.neighbors(nodeId, { relation: 'evidenced_by', direction: 'out', type: 'document' })) {
+      if (doc.ownerId === actorId) doc.visibility = visibility;
+    }
+    return node;
+  }
+
+  /** Remove someone from a household. Their person node stays so history still adds up. */
+  removeMember(householdId: string, userId: string): void {
+    this.acl.revoke(userId, householdId);
+    this.graph.unlink(userId, 'member_of', householdId);
+    this.graph.updateNode<PersonProps>(userId, { left: true });
+  }
+
+  renameMember(userId: string, name: string): void {
+    this.graph.updateNode(userId, {}, name);
   }
 
   now(): Date {

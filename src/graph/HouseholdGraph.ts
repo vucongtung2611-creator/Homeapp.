@@ -16,6 +16,13 @@ export interface Subgraph {
 
 export type NodeFilter = (node: GraphNode) => boolean;
 
+/** JSON-safe form of a graph, used for persistence. */
+export interface GraphSnapshot {
+  version: 1;
+  nodes: (Omit<GraphNode, 'createdAt' | 'updatedAt'> & { createdAt: string; updatedAt: string })[];
+  edges: (Omit<GraphEdge, 'createdAt'> & { createdAt: string })[];
+}
+
 /**
  * In-memory property graph. The storage engine is intentionally simple: the
  * public API is what the rest of the platform depends on, so it can later be
@@ -190,6 +197,33 @@ export class HouseholdGraph {
     return this.find<P>(
       (n) => n.householdId === householdId && n.type === type && n.label.trim().toLowerCase() === needle,
     )[0];
+  }
+
+  toJSON(): GraphSnapshot {
+    return {
+      version: 1,
+      nodes: [...this.nodes.values()].map((n) => ({
+        ...n,
+        createdAt: n.createdAt.toISOString(),
+        updatedAt: n.updatedAt.toISOString(),
+      })),
+      edges: [...this.edges.values()].map((e) => ({ ...e, createdAt: e.createdAt.toISOString() })),
+    };
+  }
+
+  static fromJSON(snapshot: GraphSnapshot, clock?: () => Date): HouseholdGraph {
+    const graph = new HouseholdGraph(clock);
+    for (const n of snapshot.nodes) {
+      graph.nodes.set(n.id, { ...n, createdAt: new Date(n.createdAt), updatedAt: new Date(n.updatedAt) });
+      graph.outgoing.set(n.id, new Set());
+      graph.incoming.set(n.id, new Set());
+    }
+    for (const e of snapshot.edges) {
+      graph.edges.set(e.id, { ...e, createdAt: new Date(e.createdAt) });
+      graph.outgoing.get(e.from)?.add(e.id);
+      graph.incoming.get(e.to)?.add(e.id);
+    }
+    return graph;
   }
 
   get size(): { nodes: number; edges: number } {

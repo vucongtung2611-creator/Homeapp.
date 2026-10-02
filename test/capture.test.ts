@@ -39,7 +39,15 @@ test('understands receipts and bills', () => {
     subject: 'Your electricity bill is ready',
     body: 'Billing period 1 Jul – 30 Sep. Amount due: $312.45. Payment due by 2026-10-20.',
   });
-  assert.deepEqual(bill, { kind: 'bill', category: 'electricity', amount: 312.45, currency: 'AUD', dueDate: '2026-10-20' });
+  assert.deepEqual(bill, {
+    kind: 'bill',
+    category: 'electricity',
+    amount: 312.45,
+    currency: 'AUD',
+    dueDate: '2026-10-20',
+    periodStart: '2026-07-01',
+    periodEnd: '2026-09-30',
+  });
 });
 
 test('an order email becomes order + receipt + private transaction + household-visible parcel', () => {

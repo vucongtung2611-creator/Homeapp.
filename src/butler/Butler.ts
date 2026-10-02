@@ -208,12 +208,15 @@ export class Butler {
     }
 
     if (/parcel|package|deliver|bưu kiện|giao hàng|đơn hàng/.test(t)) {
-      const parcels = this.delivery.parcels(actorId, householdId);
+      const parcels = this.delivery.summaries(actorId, householdId);
       return {
         intent: 'parcels',
         text: parcels.length
           ? parcels
-              .map((v) => `${v.parcel.props.carrier} ${v.parcel.props.trackingNumber} for ${v.recipient ?? 'household'}: ${v.parcel.props.status}${v.retailer ? ` (${v.retailer})` : ''}`)
+              .map(
+                (v) =>
+                  `${v.label}${v.trackingNumber ? ` (${v.carrier} ${v.trackingNumber})` : ''} for ${v.recipientName ?? 'household'}: ${v.status}`,
+              )
               .join('; ')
           : 'No parcels on the way.',
         data: parcels,

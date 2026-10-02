@@ -52,10 +52,12 @@ test('the butler only reasons over what the asker may see', () => {
 test('intent routing covers parcels, bills and repairs', () => {
   const { app, hh, bathroom } = stockedKitchen();
   app.capture.ingest('an', hh, { source: 'email', body: 'Your UPS parcel 1Z999AA10123456784 has shipped' });
-  app.finance.recordExpense('linh', hh, { description: 'Groceries', amount: 40, category: 'food', participants: ['linh', 'an'] });
+  app.finance.recordExpense('linh', hh, { description: 'Groceries', amount: 40, category: 'food', shared: true });
   app.maintenance.reportIssue('an', hh, { title: 'Leaking tap', description: '', roomId: bathroom.id });
 
-  assert.match(app.butler.ask('linh', hh, 'Bưu kiện của mình đâu rồi?').text, /UPS 1Z999AA10123456784 for An: expected/);
+  // Linh sees An's parcel exists, but not its tracking number.
+  assert.equal(app.butler.ask('linh', hh, 'Bưu kiện của mình đâu rồi?').text, 'UPS parcel for An: expected');
+  assert.match(app.butler.ask('an', hh, 'any parcels?').text, /UPS 1Z999AA10123456784/);
   assert.equal(app.butler.ask('an', hh, 'Who owes what?').text, 'An → Linh: 20.00');
   assert.equal(app.butler.ask('minh', hh, 'anything broken?').text, 'Leaking tap: reported');
   assert.equal(app.butler.ask('linh', hh, 'hello').intent, 'unknown');

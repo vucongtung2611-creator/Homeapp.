@@ -1,5 +1,5 @@
 import type { GraphNode } from '../graph/types.js';
-import type { Delivery } from '../modules/delivery.js';
+import type { Delivery, OrderProps } from '../modules/delivery.js';
 import type { Finance } from '../modules/finance.js';
 import type { Platform } from '../platform.js';
 import type { IntegrationRegistry } from './registry.js';
@@ -24,7 +24,7 @@ const FACT_DOMAIN = { tracking: 'delivery', receipt: 'finance', bill: 'finance' 
  * Privacy default: anything captured from a member's personal inbox (orders,
  * receipts, purchases) is private to that member. Only what the household
  * genuinely shares — a parcel arriving at the door, a utility bill — is
- * household-visible.
+ * household-visible. Only costs explicitly marked shared are split.
  */
 export class CapturePipeline {
   constructor(
@@ -36,27 +36,39 @@ export class CapturePipeline {
   ) {}
 
   /**
+   * Extract facts from a raw signal and apply them.
    * @param integrationId when the signal arrived through a connected
    *   integration, facts outside that integration's scopes are dropped.
    */
   ingest(actorId: string, householdId: string, signal: Signal, integrationId?: string): CaptureResult {
-    const actions: string[] = [];
+    const skipped: string[] = [];
     const facts = this.extractor.extract(signal).filter((fact) => {
       if (!integrationId || !this.registry) return true;
       const allowed = this.registry.allows(integrationId, FACT_DOMAIN[fact.kind]);
-      if (!allowed) actions.push(`Skipped ${fact.kind}: integration not permitted to write ${FACT_DOMAIN[fact.kind]}`);
+      if (!allowed) skipped.push(`Skipped ${fact.kind}: integration not permitted to write ${FACT_DOMAIN[fact.kind]}`);
       return allowed;
     });
+    const result = this.apply(actorId, householdId, facts, signal);
+    return { ...result, actions: [...skipped, ...result.actions] };
+  }
+
+  /**
+   * Connect + Act for facts that are already understood — either straight from
+   * the extractor, or reviewed and corrected by the user before saving.
+   */
+  apply(actorId: string, householdId: string, facts: Fact[], source: Partial<Signal> = {}): CaptureResult {
     const created: GraphNode[] = [];
+    const actions: string[] = [];
 
     let order: GraphNode | undefined;
     const receipt = facts.find((f): f is ReceiptFact => f.kind === 'receipt');
     if (receipt) {
-      const result = this.connectReceipt(actorId, householdId, receipt, signal);
+      const result = this.recordPurchase(actorId, householdId, receipt, source);
       order = result.order;
-      created.push(...result.created);
+      created.push(result.order, result.document, result.transaction);
       actions.push(
-        `Recorded ${receipt.currency} ${receipt.total.toFixed(2)} purchase${receipt.retailer ? ` from ${receipt.retailer}` : ''}`,
+        `Recorded ${receipt.currency} ${receipt.total} purchase${receipt.retailer ? ` from ${receipt.retailer}` : ''}` +
+          (receipt.shared ? ' (shared)' : ''),
       );
     }
 
@@ -67,6 +79,8 @@ export class CapturePipeline {
           carrier: fact.carrier,
           recipientId: actorId,
           orderId: order?.id,
+          expectedOn: fact.expectedOn,
+          publicLabel: fact.publicLabel,
         });
         created.push(parcel);
         actions.push(`Tracking ${fact.carrier} parcel ${fact.trackingNumber}`);
@@ -75,68 +89,78 @@ export class CapturePipeline {
           category: fact.category,
           amount: fact.amount,
           currency: fact.currency,
+          provider: fact.provider,
           dueDate: fact.dueDate,
+          periodStart: fact.periodStart,
+          periodEnd: fact.periodEnd,
+          shared: fact.shared,
+          responsible: fact.responsible,
         });
         created.push(bill);
         const split = Object.keys(bill.props.shares).length;
         actions.push(
-          `Added ${bill.label.toLowerCase()} (${fact.currency} ${fact.amount.toFixed(2)}${fact.dueDate ? `, due ${fact.dueDate}` : ''}) split between ${split}`,
+          `Added ${bill.label.toLowerCase()} (${fact.currency} ${fact.amount}${fact.dueDate ? `, due ${fact.dueDate}` : ''})` +
+            (bill.props.shared ? ` split between ${split}` : ' (personal)'),
         );
       }
     }
     return { facts, created, actions };
   }
 
-  private connectReceipt(actorId: string, householdId: string, fact: ReceiptFact, signal: Signal) {
+  /**
+   * A purchase becomes order + receipt + transaction, all private to the buyer
+   * unless the expense is marked shared (then only the transaction is shared;
+   * the order can be shared separately with one tap).
+   */
+  recordPurchase(actorId: string, householdId: string, fact: ReceiptFact, source: Partial<Signal> = {}) {
     const g = this.p.graph;
-    const created: GraphNode[] = [];
     const isPrivate = { ownerId: actorId, visibility: 'private' as const };
 
     let retailer: GraphNode | undefined;
     if (fact.retailer) {
+      this.p.acl.assertCreate(actorId, householdId, 'shopping');
       retailer =
         g.findByLabel(householdId, 'retailer', fact.retailer) ??
         g.addNode({ type: 'retailer', householdId, domain: 'shopping', label: fact.retailer });
     }
 
+    const existing = fact.orderNumber
+      ? g.findByType<OrderProps>(householdId, 'order').find((o) => o.props.orderNumber === fact.orderNumber && o.ownerId === actorId)
+      : undefined;
     const order =
-      (fact.orderNumber
-        ? g.findByType(householdId, 'order').find((o) => o.props.orderNumber === fact.orderNumber)
-        : undefined) ??
-      g.addNode({
+      existing ??
+      g.addNode<OrderProps>({
         type: 'order',
         householdId,
         domain: 'shopping',
         label: fact.orderNumber ? `Order ${fact.orderNumber}` : `Purchase${fact.retailer ? ` at ${fact.retailer}` : ''}`,
-        props: { orderNumber: fact.orderNumber, total: fact.total, currency: fact.currency },
+        props: { orderNumber: fact.orderNumber, description: fact.description, total: fact.total, currency: fact.currency },
         ...isPrivate,
       });
-    created.push(order);
     if (retailer) g.link(order.id, 'sold_by', retailer.id);
 
     const document = g.addNode({
       type: 'document',
       householdId,
       domain: 'documents',
-      label: signal.subject ?? 'Receipt',
-      props: { kind: 'receipt', source: signal.source, from: signal.from },
+      label: source.subject ?? 'Receipt',
+      props: { kind: 'receipt', source: source.source ?? 'manual', from: source.from },
       ...isPrivate,
     });
-    created.push(document);
     g.link(order.id, 'evidenced_by', document.id);
 
-    const tx = this.finance.recordExpense(actorId, householdId, {
-      description: order.label,
+    const transaction = this.finance.recordExpense(actorId, householdId, {
+      description: fact.description ?? (fact.retailer ? `${fact.retailer}` : order.label),
       amount: fact.total,
       currency: fact.currency,
-      category: 'shopping',
-      date: (signal.receivedAt ?? this.p.now()).toISOString().slice(0, 10),
-      private: true,
+      category: fact.category ?? 'shopping',
+      date: fact.date ?? (source.receivedAt ?? this.p.now()).toISOString().slice(0, 10),
+      shared: fact.shared ?? false,
+      participants: fact.participants,
     });
-    created.push(tx);
-    g.link(order.id, 'purchased_as', tx.id);
-    g.link(tx.id, 'evidenced_by', document.id);
+    g.link(order.id, 'purchased_as', transaction.id);
+    g.link(transaction.id, 'evidenced_by', document.id);
 
-    return { order, created };
+    return { order, document, transaction };
   }
 }
