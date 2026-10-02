@@ -3,6 +3,7 @@ import { CapturePipeline } from './integrations/CapturePipeline.js';
 import { IntegrationRegistry } from './integrations/registry.js';
 import { Delivery } from './modules/delivery.js';
 import { Finance } from './modules/finance.js';
+import { Items } from './modules/items.js';
 import { Kitchen } from './modules/kitchen.js';
 import { Maintenance } from './modules/maintenance.js';
 import { Coordination } from './modules/tasks.js';
@@ -20,6 +21,7 @@ export * from './integrations/CapturePipeline.js';
 export * from './modules/tasks.js';
 export * from './modules/finance.js';
 export * from './modules/kitchen.js';
+export * from './modules/items.js';
 export * from './modules/delivery.js';
 export * from './modules/maintenance.js';
 export * from './modules/wishlist.js';
@@ -28,11 +30,12 @@ export * from './butler/Butler.js';
 export * from './platform.js';
 
 /** Wires every module onto one shared graph and permission system. */
-export function createHomeApp(options: { clock?: () => Date } = {}) {
-  const platform = new Platform(options.clock);
+export function createHomeApp(options: { clock?: () => Date; platform?: Platform } = {}) {
+  const platform = options.platform ?? new Platform(options.clock);
   const coordination = new Coordination(platform);
   const finance = new Finance(platform, coordination);
   const kitchen = new Kitchen(platform);
+  const items = new Items(platform);
   const delivery = new Delivery(platform);
   const maintenance = new Maintenance(platform);
   const wishlist = new Wishlist(platform);
@@ -40,7 +43,7 @@ export function createHomeApp(options: { clock?: () => Date } = {}) {
   const integrations = new IntegrationRegistry(platform);
   const capture = new CapturePipeline(platform, delivery, finance, integrations);
   const butler = new Butler(platform, kitchen, finance, coordination, delivery, maintenance);
-  return { platform, coordination, finance, kitchen, delivery, maintenance, wishlist, wardrobe, integrations, capture, butler };
+  return { platform, coordination, finance, kitchen, items, delivery, maintenance, wishlist, wardrobe, integrations, capture, butler };
 }
 
 export type HomeApp = ReturnType<typeof createHomeApp>;

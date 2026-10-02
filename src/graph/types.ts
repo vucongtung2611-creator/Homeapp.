@@ -42,7 +42,8 @@ export type Domain =
   | 'wardrobe'
   | 'calendar'
   | 'communication'
-  | 'documents';
+  | 'documents'
+  | 'library';
 
 export const ALL_DOMAINS: readonly Domain[] = [
   'core',
@@ -55,6 +56,7 @@ export const ALL_DOMAINS: readonly Domain[] = [
   'calendar',
   'communication',
   'documents',
+  'library',
 ];
 
 /**

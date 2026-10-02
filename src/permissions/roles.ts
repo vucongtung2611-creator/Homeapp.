@@ -42,6 +42,7 @@ export const DEFAULT_POLICIES: Record<Role, RolePolicy> = {
       shopping: 'read',
       wardrobe: 'write',
       maintenance: 'write',
+      library: 'read',
     },
   },
   tenant: {
@@ -56,6 +57,7 @@ export const DEFAULT_POLICIES: Record<Role, RolePolicy> = {
       communication: 'write',
       documents: 'read',
       wardrobe: 'write',
+      library: 'write',
     },
   },
   guest: { domains: { core: 'read', calendar: 'read', communication: 'write' } },
