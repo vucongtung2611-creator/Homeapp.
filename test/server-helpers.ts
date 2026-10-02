@@ -16,10 +16,10 @@ export async function testDatabase(): Promise<Database | undefined> {
   });
 }
 
-export async function testServer(options: { trustProxy?: boolean; dataDir?: string; db?: Database } = {}) {
+export async function testServer(options: { trustProxy?: boolean; dataDir?: string; db?: Database; chatIdleMs?: number } = {}) {
   const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), 'homeapp-test-'));
   const db = options.db ?? (await testDatabase());
-  return { ...(await createServer({ dataDir, db, trustProxy: options.trustProxy })), dataDir };
+  return { ...(await createServer({ dataDir, db, trustProxy: options.trustProxy, chatIdleMs: options.chatIdleMs })), dataDir };
 }
 
 export type Server = Awaited<ReturnType<typeof testServer>>;

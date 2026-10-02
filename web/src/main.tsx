@@ -23,7 +23,7 @@ export const rememberHome = (id: string) => {
 function App() {
   const [path, setP] = useState(location.pathname + location.search);
   bindRouter(setP);
-  const me = useLoad(() => api<{ user: User | null; households: Session['households'] }>('GET', '/api/me'), []);
+  const me = useLoad(() => api<{ user: User | null; households: Session['households']; config?: Session['config'] }>('GET', '/api/me'), []);
   const session: Session | undefined = me.data && { ...me.data, refresh: () => me.reload(true) as Promise<void> };
 
   if (me.loading && !me.data) {
@@ -71,58 +71,121 @@ function Redirect({ to }: { to: string }) {
 export type Tab = 'chat' | 'library' | 'bills' | 'settings';
 
 
-function useLive(householdId: string): Live {
+/**
+ * Live updates over SSE. To save server time (Cloud Run bills while a
+ * connection is open) the stream is closed after `idleMs` without a tap,
+ * key or scroll, or while the tab is hidden. The next interaction or the
+ * tab becoming visible reconnects and fires 'resync' so screens fetch what
+ * they missed.
+ */
+function useLive(householdId: string, idleMs: number): Live {
   const listeners = useMemo(() => new Set<Listener>(), [householdId]);
   const [connected, setConnected] = useState(true);
+  const [paused, setPaused] = useState(false);
   useEffect(() => {
     let es: EventSource | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let lostAt = 0;
     let stopped = false;
+    let isPaused = false;
+    let lastActivity = Date.now();
+    let lastPresence = Date.now();
+    let hiddenSince = document.visibilityState === 'hidden' ? Date.now() : 0;
     const emit = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
         listeners.forEach((fn) => fn(data));
       } catch {}
     };
+    const mark = (state: string) => document.documentElement.setAttribute('data-live', state);
+    const pause = () => {
+      if (isPaused || stopped) return;
+      isPaused = true;
+      es?.close();
+      clearTimeout(retry);
+      if (!lostAt) lostAt = Date.now();
+      setPaused(true);
+      setConnected(true);
+      mark('paused');
+    };
     const connect = () => {
+      es?.close();
+      mark('connecting');
       es = new EventSource(`/api/households/${householdId}/events`);
       es.addEventListener('ready', () => {
         setConnected(true);
+        mark('live');
         // Catch up on anything missed while disconnected.
         if (lostAt) listeners.forEach((fn) => fn({ type: 'resync' }));
         lostAt = 0;
       });
+      // The server closes quiet streams; don't let EventSource reconnect by itself.
+      es.addEventListener('idle', pause);
       for (const type of ['message', 'message_deleted', 'changed']) es.addEventListener(type, emit as EventListener);
       es.onerror = () => {
+        if (isPaused) return;
         if (!lostAt) lostAt = Date.now();
         // EventSource retries by itself; flag the banner only if it takes a while.
-        setTimeout(() => !stopped && lostAt && Date.now() - lostAt > 2500 && setConnected(false), 3000);
+        setTimeout(() => !stopped && !isPaused && lostAt && Date.now() - lostAt > 2500 && setConnected(false), 3000);
         if (es?.readyState === EventSource.CLOSED) {
           es.close();
           retry = setTimeout(connect, 3000);
         }
       };
     };
-    connect();
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && es?.readyState === EventSource.CLOSED) connect();
+    const resume = () => {
+      if (!isPaused || stopped) return;
+      isPaused = false;
+      setPaused(false);
+      connect();
     };
-    document.addEventListener('visibilitychange', onVisible);
+    const active = () => {
+      lastActivity = Date.now();
+      if (document.visibilityState === 'hidden') return;
+      if (isPaused) return resume();
+      // Tell the server we're still here, so it keeps the stream open.
+      if (Date.now() - lastPresence > Math.min(60_000, idleMs / 3)) {
+        lastPresence = Date.now();
+        api('POST', `/api/households/${householdId}/presence`).catch(() => {});
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenSince = Date.now();
+        return;
+      }
+      hiddenSince = 0;
+      active();
+      if (!isPaused && es?.readyState === EventSource.CLOSED) connect();
+    };
+    const check = setInterval(
+      () => {
+        const now = Date.now();
+        if (hiddenSince ? now - hiddenSince >= idleMs : now - lastActivity >= idleMs) pause();
+      },
+      Math.max(250, Math.min(15_000, idleMs / 6)),
+    );
+    const events = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'] as const;
+    for (const type of events) window.addEventListener(type, active, { passive: true, capture: true });
+    document.addEventListener('visibilitychange', onVisibility);
+    connect();
     return () => {
       stopped = true;
       es?.close();
       clearTimeout(retry);
-      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(check);
+      for (const type of events) window.removeEventListener(type, active, { capture: true });
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.documentElement.removeAttribute('data-live');
     };
-  }, [householdId]);
-  return { on: (fn) => (listeners.add(fn), () => listeners.delete(fn)), connected };
+  }, [householdId, idleMs]);
+  return { on: (fn) => (listeners.add(fn), () => listeners.delete(fn)), connected, paused };
 }
 
 function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
   const { householdId, tab, session } = props;
   const home = useLoad(() => api<Household>('GET', `/api/households/${householdId}`), [householdId]);
-  const live = useLive(householdId);
+  const live = useLive(householdId, (session.config?.chatIdleMinutes ?? 3) * 60_000);
   const [unread, setUnread] = useState(false);
 
   useEffect(() => rememberHome(householdId), [householdId]);
@@ -174,7 +237,13 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
           </button>
         )}
       </header>
-      {!live.connected && <div class="banner" style={{ margin: '0 20px 10px' }}>{t('live.reconnecting')}</div>}
+      {live.paused ? (
+        <div class="banner info" role="status" style={{ margin: '0 20px 10px' }}>
+          {t('live.paused')}
+        </div>
+      ) : (
+        !live.connected && <div class="banner" style={{ margin: '0 20px 10px' }}>{t('live.reconnecting')}</div>
+      )}
       {!h ? (
         <div class="page">
           <Skeleton />

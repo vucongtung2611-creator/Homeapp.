@@ -15,7 +15,9 @@
     "dev": "npm run build && PORT=3000 npm start",
     "demo": "tsc -p . && node dist/src/demo.js",
     "check:i18n": "node scripts/check-i18n.mjs",
-    "test:pg": "tsc -p . && TEST_DB=pglite node --test \"dist/test/server-*.test.js\""
+    "test:pg": "tsc -p . && TEST_DB=pglite node --test \"dist/test/server-*.test.js\"",
+    "try": "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund && npm run build && node --disable-warning=ExperimentalWarning dist/server/try.js",
+    "e2e:idle": "node scripts/e2e-idle.mjs"
   },
   "engines": {
     "node": ">=22.13"

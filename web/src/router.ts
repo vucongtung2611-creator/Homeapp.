@@ -19,10 +19,14 @@ export type Listener = (event: { type: string; [k: string]: any }) => void;
 export interface Live {
   on(fn: Listener): () => void;
   connected: boolean;
+  /** Disconnected on purpose after a while without activity; any tap or key resumes. */
+  paused: boolean;
 }
 
 export interface Session {
   user: { id: string; email: string; name: string; avatar: string } | null;
   households: { id: string; name: string; role: string }[];
+  /** Server settings, e.g. how long chat stays connected without activity. */
+  config?: { chatIdleMinutes: number };
   refresh: () => Promise<void>;
 }

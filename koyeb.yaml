@@ -11,3 +11,4 @@ env:
   DATABASE_URL: "<Koyeb secret: Neon connection string>"
   TRUST_PROXY: "1"
   HOUSEHOLD_QUOTA_MB: "50"
+  CHAT_IDLE_MINUTES: "3"

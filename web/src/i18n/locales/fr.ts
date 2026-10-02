@@ -95,6 +95,7 @@ const fr: Messages = {
   },
   live: {
     reconnecting: 'Reconnexion… les nouveaux messages arriveront dès le retour du réseau.',
+    paused: 'En pause pour économiser la batterie. Touchez n’importe où pour vous remettre à jour.',
   },
   chat: {
     emptyTitle: 'C’est calme ici',

@@ -95,6 +95,7 @@ const nl: Messages = {
   },
   live: {
     reconnecting: 'Opnieuw verbinden… nieuwe berichten komen binnen zodra je weer online bent.',
+    paused: 'Gepauzeerd om batterij te sparen. Tik ergens om bij te werken.',
   },
   chat: {
     emptyTitle: 'Het is hier stil',

@@ -1,4 +1,5 @@
 # Render Blueprint — free web service + free Postgres from Neon.
+# No database is created on Render (its free Postgres expires after 30 days).
 # Render → New → Blueprint → pick this repository. You will be asked for
 # DATABASE_URL: paste the Neon connection string (it stays secret on Render).
 services:
@@ -6,7 +7,7 @@ services:
     name: mate
     runtime: docker
     plan: free
-    region: frankfurt # closest to the Netherlands; use singapore for friends in Vietnam
+    region: singapore # same region as the Neon database (AWS Singapore)
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
@@ -16,3 +17,5 @@ services:
         value: "1"
       - key: HOUSEHOLD_QUOTA_MB
         value: "50" # Neon free = 0.5 GB in total
+      - key: CHAT_IDLE_MINUTES
+        value: "3" # live chat hangs up after this much inactivity; 30 while filming

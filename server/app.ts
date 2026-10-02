@@ -46,6 +46,12 @@ export interface ServerOptions {
   databaseUrl?: string;
   /** Storage allowed per household for uploads, in bytes. */
   householdQuotaBytes?: number;
+  /**
+   * Close a member's live chat connection after this long without activity
+   * (any request to the home, or a presence ping). Keeps a scale-to-zero host
+   * like Render from being held awake by an idle tab. Default 3 minutes.
+   */
+  chatIdleMs?: number;
   /** Built web app. Omit in API-only tests. */
   publicDir?: string;
   /** Mark cookies Secure (true behind HTTPS). */
@@ -68,6 +74,10 @@ export async function createServer(options: ServerOptions) {
   const db =
     options.db ?? (options.databaseUrl ? await openPostgresUrl(options.databaseUrl) : await openSqlite(join(options.dataDir, 'homeapp.db')));
   // Free Postgres tiers are small (Neon: 0.5 GB), so homes get less room there by default.
+  const chatIdleMs = options.chatIdleMs ?? 3 * 60_000;
+  /** Last time each member showed signs of life in each home: `${householdId}:${userId}` → ms. */
+  const lastActive = new Map<string, number>();
+  const touch = (householdId: string, userId: string) => lastActive.set(`${householdId}:${userId}`, Date.now());
   const quota = options.householdQuotaBytes ?? (db.dialect === 'postgres' ? 100 : 500) * 1024 * 1024;
   const auth = new Auth(db);
   const store = new HouseholdStore(db);
@@ -183,6 +193,7 @@ export async function createServer(options: ServerOptions) {
     const home = await store.get(householdId);
     const role = home?.platform.acl.roleOf(user.id, householdId);
     if (!home || !role) throw new HttpError(404, 'not_found');
+    touch(householdId, user.id); // any request to the home counts as activity
     return { user, householdId, home, role };
   };
   const startSession = async (c: Context, user: User) => {
@@ -238,8 +249,9 @@ export async function createServer(options: ServerOptions) {
 
   app.get('/api/me', async (c) => {
     const user = c.get('user');
-    if (!user) return c.json({ user: null, households: [] });
-    return c.json({ user, households: await store.householdsOf(user.id) });
+    const config = { chatIdleMinutes: chatIdleMs / 60_000 };
+    if (!user) return c.json({ user: null, households: [], config });
+    return c.json({ user, households: await store.householdsOf(user.id), config });
   });
 
   // ── Households ───────────────────────────────────────────────────────
@@ -535,6 +547,12 @@ export async function createServer(options: ServerOptions) {
     return c.json({ ok: true });
   });
 
+  /** "I'm still here" from an app that is open and being used, but not making other requests. */
+  app.post('/api/households/:hid/presence', async (c) => {
+    await requireMember(c);
+    return c.json({ ok: true });
+  });
+
   app.get('/api/households/:hid/events', async (c) => {
     const { user, householdId } = await requireMember(c);
     c.header('Cache-Control', 'no-cache, no-transform');
@@ -553,12 +571,24 @@ export async function createServer(options: ServerOptions) {
         open = false;
         unsubscribe();
       });
-      await stream.writeSSE({ event: 'ready', data: '{}', retry: 3000 });
+      await stream.writeSSE({ event: 'ready', data: JSON.stringify({ idleMs: chatIdleMs }), retry: 3000 });
+      const key = `${householdId}:${user.id}`;
+      const tick = Math.max(50, Math.min(20_000, Math.floor(chatIdleMs / 4)));
+      let lastPing = Date.now();
       while (open && !stream.aborted) {
-        await stream.sleep(20_000);
+        await stream.sleep(tick);
+        if (!open || stream.aborted) break;
         // Membership can be revoked while the stream is open.
         if (!(await store.roleOf(householdId, user.id))) break;
-        if (open) await stream.writeSSE({ event: 'ping', data: '' });
+        // Idle (or the tab was frozen): tell the app to stop reconnecting, then hang up.
+        if (Date.now() - (lastActive.get(key) ?? 0) > chatIdleMs) {
+          await stream.writeSSE({ event: 'idle', data: '{}' });
+          break;
+        }
+        if (Date.now() - lastPing >= 20_000) {
+          lastPing = Date.now();
+          await stream.writeSSE({ event: 'ping', data: '' });
+        }
       }
       unsubscribe();
     });

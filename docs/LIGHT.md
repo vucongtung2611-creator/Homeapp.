@@ -71,7 +71,7 @@ Trình duyệt (Preact, 90 KB)            Server Node 22 (Hono)                 
 
 ## Đưa lên một đường dẫn chung
 
-> **Hướng dẫn miễn phí mới nhất: [docs/DEPLOY.md](DEPLOY.md)** (Render Free + Neon Postgres). Phần dưới đây là các phương án trả phí cũ.
+> **Phương án đang dùng: [Render Free + Neon Free](DEPLOY.md)**, không cần thẻ. Chạy thử trên máy bằng một lệnh: [TRY.md](TRY.md). Phần dưới đây là các phương án trả phí cũ.
 
 App đóng gói bằng `Dockerfile`, cần ổ đĩa lâu dài gắn vào `/data`.
 

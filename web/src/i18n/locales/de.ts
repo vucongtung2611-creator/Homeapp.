@@ -95,6 +95,7 @@ const de: Messages = {
   },
   live: {
     reconnecting: 'Verbindung wird wiederhergestellt… neue Nachrichten kommen, sobald du wieder online bist.',
+    paused: 'Pausiert, um Akku zu sparen. Tippe irgendwo, um auf den neuesten Stand zu kommen.',
   },
   chat: {
     emptyTitle: 'Hier ist es ruhig',

@@ -1,111 +1,148 @@
-# Đưa MATE lên mạng miễn phí — hướng dẫn từng bước
+# Đưa MATE lên mạng miễn phí: Render Free + Neon Free (không cần thẻ)
 
-## Dữ liệu đang được lưu ở đâu?
+> **Muốn xem thử ngay, chưa cần đưa lên mạng?** Xem [TRY.md](TRY.md): chạy trên máy Mac bằng một lệnh, có sẵn dữ liệu mẫu.
 
-| Chế độ | Khi nào | Lưu ở đâu |
-|---|---|---|
-| **SQLite** | Không đặt `DATABASE_URL` (chạy trên máy, chạy test) | Một tệp `data/homeapp.db`. Ảnh nằm ngay trong tệp này. |
-| **Postgres** | Có `DATABASE_URL` (khi đưa lên mạng) | Cơ sở dữ liệu Postgres, ví dụ Neon. Mọi thứ, kể cả ảnh, nằm trong đó. Máy chủ web không cần ổ đĩa. |
-
-Lý do phải dùng Postgres khi đưa lên mạng: gói miễn phí của Render và Koyeb **xoá sạch ổ đĩa mỗi lần máy khởi động lại hoặc ngủ dậy**. Nếu dùng tệp SQLite thì mọi tài khoản, tin nhắn và hóa đơn sẽ mất. Neon giữ dữ liệu lâu dài, và gói miễn phí không hết hạn.
-
-Mỗi nhà là một bản ghi riêng trong cơ sở dữ liệu, có kiểm tra thành viên ở mọi API. Người không thuộc nhà sẽ nhận lỗi "không tìm thấy", không thấy được gì.
-
-## Phương án đề xuất (hoàn toàn miễn phí)
-
-**Render (gói web Free) + Neon (Postgres Free)**
+## Tóm tắt
 
 | | Render Free | Neon Free |
 |---|---|---|
-| Vai trò | Chạy app, cấp HTTPS và link `https://mate-xxxx.onrender.com` | Lưu dữ liệu |
-| Giới hạn chính | Ngủ sau 15 phút không ai dùng. Lần mở đầu tiên sau đó chờ khoảng 30–60 giây | 0,5 GB lưu trữ. Tự ngủ khi rảnh, thức lại trong khoảng 1 giây |
-| Hết hạn? | Không (750 giờ/tháng, đủ chạy liên tục) | Không |
+| Vai trò | Chạy app, cấp HTTPS và link `https://mate-xxxx.onrender.com` | **Lưu toàn bộ dữ liệu**: tài khoản, tin nhắn, hoá đơn, ảnh và tài liệu |
+| Cần thẻ? | Không | Không |
+| Giới hạn | Ngủ sau 15 phút không ai dùng. Lần mở đầu sau đó chờ khoảng 30–60 giây | 0,5 GB. Tự ngủ khi rảnh, thức lại trong khoảng 1 giây |
+| Hết hạn? | Không (750 giờ/tháng) | Không |
 
-Vì sao không chọn các phương án khác:
+> ⚠️ **Không tạo cơ sở dữ liệu trên Render.**
+> - Postgres miễn phí của Render **bị xoá sau 30 ngày**.
+> - Ổ đĩa của gói Free cũng bị xoá mỗi lần app khởi động lại.
+>
+> Mọi dữ liệu phải nằm ở **Neon**. Nếu quên nối Neon, app trên Render sẽ **từ chối chạy** thay vì âm thầm mất dữ liệu.
 
-- **Postgres của Render:** gói miễn phí hết hạn sau 30 ngày.
-- **Fly.io:** không còn gói miễn phí cho tài khoản mới.
-- **Koyeb:** cũng miễn phí và dùng được. Bước làm ở cuối tài liệu, dùng nếu Render gặp trục trặc.
-- **Supabase:** cũng có Postgres miễn phí, nhưng dự án tự tạm dừng sau 1 tuần không hoạt động. Neon hợp hơn cho bản chạy thử.
+> 🔑 **Chuỗi kết nối Neon là bí mật**, giống mật khẩu: ai có nó là đọc và xoá được mọi dữ liệu.
+> - **Chỉ** dán vào ô `DATABASE_URL` trong Render.
+> - **Không** dán vào chat, email, tin nhắn, ảnh chụp màn hình, hay vào code trên GitHub.
 
-Mỗi nhà được dùng tối đa 50 MB cho ảnh và tài liệu (đặt bằng `HOUSEHOLD_QUOTA_MB`), để cả nhóm bạn không vượt 0,5 GB của Neon.
+Ảnh và tài liệu nằm trong Neon, mỗi nhà tối đa 50 MB, đặt bằng `HOUSEHOLD_QUOTA_MB`. Như vậy 10 người thử vẫn nằm trong 0,5 GB miễn phí.
+
+Các bước dưới đây đánh dấu 🔒 là **việc chỉ Tom làm được**, vì cần tài khoản của Tom.
 
 ---
 
-## Các bước — những việc chỉ Tom làm được
+## Bước 1 — 🔒 Tạo cơ sở dữ liệu trên Neon (5 phút)
 
-> Mình đã chuẩn bị sẵn toàn bộ code và cấu hình (`Dockerfile`, `render.yaml`). Tom chỉ cần tạo tài khoản và bấm nút.
-> **Không dán chuỗi kết nối cơ sở dữ liệu vào chat, email hay vào code.** Chỉ dán vào ô cài đặt của Render.
+1. Vào **https://neon.tech** → **Sign up**. Đăng nhập bằng Google hoặc GitHub; không cần thẻ.
+2. Tạo project:
+   - **Project name:** `mate`;
+   - **Region:** **AWS Asia Pacific (Singapore)**, cùng vùng với Render ở bước 2;
+   - các ô khác để mặc định → **Create project**.
+3. Neon hiện hộp **Connect to your database**. Bấm **Copy snippet** cạnh chuỗi dạng:
+   `postgresql://neondb_owner:••••@ep-xxxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`
+4. Đây là **khoá bí mật**. Để yên trong clipboard, sang bước 2 dán ngay.
 
-### Bước 1 — Tạo cơ sở dữ liệu trên Neon (khoảng 3 phút)
+## Bước 2 — 🔒 Tạo app trên Render (10 phút, phần lớn là chờ)
 
-1. Vào **https://neon.tech** → **Sign up**. Nên đăng nhập bằng GitHub.
-2. Tạo project mới:
-   - Tên: `mate`.
-   - Postgres version: để mặc định.
-   - Region: **AWS Europe Central (Frankfurt)**. Chọn Singapore nếu bạn bè chủ yếu ở Việt Nam, và nhớ chọn region Render tương ứng ở bước 2.
-3. Ở màn hình **Connection details**, chọn **Connection string** rồi bấm **Copy**. Chuỗi có dạng
-   `postgresql://neondb_owner:••••@ep-xxxx-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require`
-   Đây là **khoá bí mật**. Giữ trong clipboard, chưa dán đi đâu cả.
+1. Vào **https://render.com** → **Get Started** → đăng nhập bằng **GitHub**. Không cần thẻ.
+2. Ở trang Dashboard bấm **New +** → **Blueprint**.
+3. Nếu Render hỏi quyền GitHub, bấm **Configure account** → chọn repo **`Homeapp.`** → **Save**.
+4. Chọn repo **`vucongtung2611-creator/Homeapp.`**:
+   - **Branch:** `claude/loving-turing-nrtboc`, hoặc `main` nếu đã gộp nhánh;
+   - **Blueprint Name:** `mate`.
+5. Render đọc tệp `render.yaml` và hiện **một** dịch vụ web tên **mate** (gói **Free**, vùng **Singapore**). Không có mục database nào. Nếu thấy mục database thì đừng tạo.
+6. Ở ô **DATABASE_URL**, dán chuỗi Neon từ bước 1.
+7. Bấm **Deploy Blueprint**. ⏳ Lần đầu mất 5–10 phút.
+8. Khi dịch vụ chuyển sang **Live** (chấm xanh), bấm vào **mate**. Link nằm ở đầu trang, dạng `https://mate-xxxx.onrender.com`. Đây là **link chung** để gửi cho người thử.
+9. Kiểm tra: mở `https://mate-xxxx.onrender.com/api/health`, phải thấy `{"ok":true}`.
 
-### Bước 2 — Tạo app trên Render (khoảng 10 phút, phần lớn là chờ build)
-
-1. Vào **https://render.com** → **Get Started**. Đăng nhập bằng **GitHub** và cho Render quyền đọc repo `Homeapp.`. Người cấp quyền phải là chủ repo, hoặc người có quyền với repo.
-2. Bấm **New +** → **Blueprint**.
-3. Chọn repo **`vucongtung2611-creator/Homeapp.`** và nhánh **`claude/loving-turing-nrtboc`**, hoặc `main` nếu đã gộp nhánh này vào.
-4. Render đọc tệp `render.yaml` và hiện dịch vụ **mate** (gói **Free**). Ở ô **DATABASE_URL**, dán chuỗi kết nối Neon từ bước 1.
-5. Bấm **Apply** / **Deploy Blueprint**. Lần build đầu mất khoảng 5–10 phút.
-6. Khi trạng thái chuyển sang **Live**, link của app nằm ở đầu trang, dạng `https://mate-xxxx.onrender.com`.
-
-### Bước 3 — Thử ngay
+## Bước 3 — Thử ngay
 
 1. Mở link trên điện thoại → **Get started** → tạo tài khoản → tạo nhà.
-2. Vào ⚙️ → **Create invite link** → gửi link cho một người bạn.
-3. Cài như app: trên iPhone, mở bằng Safari → nút Chia sẻ → **Thêm vào MH chính**. Trên Android, mở bằng Chrome → ⋮ → **Cài đặt ứng dụng**.
+2. Vào ⚙️ → **Create invite link** → gửi link cho bạn.
+3. Cài như app:
+   - **iPhone:** mở bằng Safari → nút Chia sẻ → **Thêm vào MH chính**;
+   - **Android:** mở bằng Chrome → ⋮ → **Cài đặt ứng dụng**.
 
-### (Tuỳ chọn) Bước 4 — Giữ app không ngủ
+## Bước 4 — Khi quay video: chat ngắt sau 30 phút
 
-App ngủ sau 15 phút không ai dùng; người mở đầu tiên sẽ chờ khoảng nửa phút. Nếu muốn tránh:
+- Mặc định, chat **tự ngắt kết nối sau 3 phút** không chạm, gõ hay cuộn, hoặc khi tab bị ẩn đủ 3 phút. App hiện dòng *"Đã tạm ngắt để tiết kiệm pin…"*.
+- Chạm vào bất kỳ đâu hoặc quay lại tab là app **tự nối lại và tải tin bị lỡ**.
+- Nhờ vậy app trên Render được ngủ khi không ai thật sự dùng, tiết kiệm 750 giờ miễn phí.
+
+Đổi thời gian ngắt:
+
+1. Render → bấm dịch vụ **mate** → menu trái **Environment**.
+2. Tìm `CHAT_IDLE_MINUTES` → **Edit** → đổi `3` thành `30` → **Save, rebuild, and deploy** (hoặc **Save changes**).
+3. ⏳ Chờ khoảng 1–3 phút cho app khởi động lại.
+4. Quay xong, đổi lại `3`.
+
+## Bước 5 — Cập nhật khi có code mới
+
+`render.yaml` đã bật `autoDeploy`: mỗi lần nhánh được đẩy code mới, Render tự dựng lại. Link và dữ liệu giữ nguyên.
+
+Muốn dựng lại bằng tay: dịch vụ **mate** → **Manual Deploy** → **Deploy latest commit**.
+
+## (Tuỳ chọn) Giữ app không ngủ
+
+Mặc định app ngủ sau 15 phút không ai dùng; người mở đầu tiên sẽ chờ khoảng nửa phút. Nếu muốn tránh khi đang demo:
 
 1. Vào **https://uptimerobot.com** → tạo tài khoản miễn phí.
-2. **Add New Monitor** → loại **HTTP(s)** → URL `https://mate-xxxx.onrender.com/api/health` → mỗi **10 phút** (gói free tối thiểu 5 phút).
+2. Bấm **Add New Monitor**:
+   - loại: **HTTP(s)**;
+   - URL: `https://mate-xxxx.onrender.com/api/health`;
+   - tần suất: mỗi **10 phút**.
 
-Một app chạy liên tục dùng khoảng 744 giờ/tháng, vẫn nằm trong 750 giờ miễn phí của Render. Chỉ nên có **một** dịch vụ Free trong tài khoản Render nếu bật bước này.
+Một app chạy liên tục dùng khoảng 744 giờ/tháng, vẫn trong 750 giờ miễn phí. Chỉ nên có **một** dịch vụ Free trong tài khoản Render khi bật cách này.
 
 ---
+
+## Ai làm gì
+
+| Việc | Ai |
+|---|---|
+| Tạo tài khoản Neon, copy chuỗi kết nối | 🔒 Tom |
+| Đăng nhập Render bằng GitHub, cấp quyền repo | 🔒 Tom (chủ repo) |
+| Dán chuỗi Neon vào ô `DATABASE_URL` | 🔒 Tom |
+| Dockerfile, `render.yaml`, cấu hình, bảo mật, kiểm thử | Đã chuẩn bị sẵn |
 
 ## Bảo mật cơ bản (đã có sẵn)
 
-- **HTTPS:** Render tự cấp. App tự nhận biết HTTPS, bật cookie `Secure` và header HSTS.
-- **Không có khoá bí mật trong code.** `DATABASE_URL` chỉ nằm trong cài đặt của Render. Kết nối tới Neon luôn qua TLS có kiểm tra chứng chỉ.
+- **HTTPS** do Render tự cấp. App tự bật cookie `Secure` và HSTS.
+- **Không có khoá bí mật nào trong code.**
+  - `DATABASE_URL` chỉ nằm trong phần Environment của Render.
+  - Kết nối tới Neon luôn qua TLS có kiểm tra chứng chỉ.
 - **Mật khẩu** băm bằng scrypt. **Phiên đăng nhập** lưu dạng băm, cookie `HttpOnly`.
-- **Giới hạn số lần đăng nhập:**
-  - 10 lần / 15 phút cho mỗi cặp IP + email;
-  - 50 lần / 15 phút cho mỗi IP;
-  - giới hạn riêng cho đăng ký và link mời.
-  - IP được lấy từ thông tin do proxy của Render ghi vào, nên người dùng không giả mạo được.
-- **Dữ liệu mỗi nhà tách riêng:** kiểm tra thành viên ở mọi API, dữ liệu riêng tư chỉ người tạo thấy. Có test tự động cho từng điều này.
-- **Lộ chuỗi kết nối?** Vào Neon → **Roles** → **Reset password**, rồi dán chuỗi mới vào Render (**Environment** → `DATABASE_URL` → **Save**). App tự khởi động lại.
+- **Giới hạn số lần đăng nhập** theo IP và email; giới hạn riêng cho đăng ký và link mời.
+- **Mỗi nhà tách riêng:** mọi API đều kiểm tra thành viên. Dữ liệu riêng tư chỉ người tạo thấy. Có test tự động cho từng điều này.
+- **Lộ chuỗi kết nối?**
+  1. Vào Neon → **Roles** → **Reset password**.
+  2. Dán chuỗi mới vào Render (**Environment** → `DATABASE_URL` → **Save**). App tự khởi động lại.
 
-## Phương án B — Koyeb
+## Gỡ rối
 
-1. **https://www.koyeb.com** → đăng ký bằng GitHub.
+| Gặp | Làm |
+|---|---|
+| Logs của Render ghi `DATABASE_URL is not set` | Environment → thêm `DATABASE_URL` (chuỗi Neon) → Save |
+| Logs ghi lỗi kết nối, `password authentication failed` | Copy lại chuỗi từ Neon (nút **Copy snippet**) và dán lại |
+| Lần mở đầu chờ lâu | Bình thường: app đang thức dậy sau khi ngủ |
+
+## Phương án dự phòng — Koyeb
+
+1. Vào **https://www.koyeb.com** → đăng ký bằng GitHub.
 2. **Create Service** → **GitHub** → chọn repo và nhánh như trên.
-3. Builder: **Dockerfile**. Instance: **Free**. Region: Frankfurt. Exposed port: **3000**. Health check: HTTP `/api/health`.
+3. Thiết lập:
+   - Builder: **Dockerfile**;
+   - Instance: **Free**;
+   - Exposed port: **3000**;
+   - Health check: HTTP `/api/health`.
 4. **Environment variables:**
-   - `DATABASE_URL`: chọn loại **Secret**, dán chuỗi Neon;
+   - `DATABASE_URL`: loại **Secret**, dán chuỗi Neon;
    - `TRUST_PROXY` = `1`;
-   - `HOUSEHOLD_QUOTA_MB` = `50`.
-5. **Deploy** → link dạng `https://mate-xxxx.koyeb.app`.
+   - `HOUSEHOLD_QUOTA_MB` = `50`;
+   - `CHAT_IDLE_MINUTES` = `3`.
+5. **Deploy**.
 
-Các thông số này cũng được ghi lại trong `koyeb.yaml`.
-
-## Chạy thử Postgres trên máy (không cần cài Postgres)
+## Chạy thử Postgres trên máy (cho người làm kỹ thuật)
 
 ```bash
 npm install && npm run build
 node scripts/pg-dev.mjs                      # một Postgres tạm (PGlite) ở cổng 5433
 DATABASE_URL=postgres://postgres@127.0.0.1:5433/postgres PG_POOL_MAX=1 npm start
 ```
-
-Máy chủ PGlite thử nghiệm chỉ phục vụ ổn một kết nối mỗi lúc, nên cần `PG_POOL_MAX=1`. Với Neon thì để mặc định.

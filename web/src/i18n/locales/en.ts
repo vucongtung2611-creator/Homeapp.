@@ -98,6 +98,7 @@ const en = {
   },
   live: {
     reconnecting: 'Reconnecting… new messages will arrive when you’re back online.',
+    paused: 'Paused to save battery. Tap anywhere to catch up.',
   },
   chat: {
     emptyTitle: 'It’s quiet in here',

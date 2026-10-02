@@ -95,6 +95,7 @@ const vi: Messages = {
   },
   live: {
     reconnecting: 'Đang kết nối lại… tin mới sẽ đến khi có mạng.',
+    paused: 'Đã tạm ngắt để tiết kiệm pin. Chạm vào bất kỳ đâu để xem tin mới.',
   },
   chat: {
     emptyTitle: 'Nhà đang yên ắng quá',
