@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { HouseholdGraph, type GraphSnapshot } from './graph/HouseholdGraph.js';
 import type { GraphNode, Visibility } from './graph/types.js';
 import { AccessControl, PermissionDeniedError } from './permissions/AccessControl.js';
@@ -82,7 +81,7 @@ export class Platform {
     props: Partial<HomeProps> = {},
   ): GraphNode<HomeProps> {
     // A home is the root of its household: its id is the household id.
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const home = this.graph.addNode<HomeProps>({
       id,
       type: 'home',

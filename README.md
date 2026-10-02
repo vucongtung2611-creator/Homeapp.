@@ -4,6 +4,8 @@
 
 A Connected Living Platform: one **Household Graph** that links people, things, money, parcels, recipes and repairs, with **permissions built into the core** and an **AI Butler** that reasons over exactly what the person asking is allowed to see.
 
+> **Light beta:** a phone-first web app with Chat, Library and Bills for a household — see [docs/LIGHT.md](docs/LIGHT.md) (Vietnamese) for scope, deployment and the security review. `npm install && npm run build && npm start` → http://localhost:3000
+
 - 📄 [Product vision (VI)](docs/VISION.md)
 - 🏗️ [Architecture](docs/ARCHITECTURE.md)
 - 🗺️ [Roadmap](docs/ROADMAP.md)
@@ -27,7 +29,7 @@ A Connected Living Platform: one **Household Graph** that links people, things, 
 
 ```bash
 npm install
-npm test        # build + 26 tests
+npm test        # core + server tests
 npm run demo    # end-to-end walkthrough
 ```
 

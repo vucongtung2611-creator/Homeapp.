@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { GraphEdge, GraphNode, NewNode, NodeType, Props, Relation } from './types.js';
 
 export type Direction = 'out' | 'in' | 'both';
@@ -15,6 +14,13 @@ export interface Subgraph {
 }
 
 export type NodeFilter = (node: GraphNode) => boolean;
+
+export class NotFoundError extends Error {
+  constructor(id: string) {
+    super(`Node ${id} not found`);
+    this.name = 'NotFoundError';
+  }
+}
 
 /** JSON-safe form of a graph, used for persistence. */
 export interface GraphSnapshot {
@@ -41,7 +47,7 @@ export class HouseholdGraph {
   }
 
   addNode<P extends Props>(input: NewNode<P>): GraphNode<P> {
-    const id = input.id ?? randomUUID();
+    const id = input.id ?? crypto.randomUUID();
     if (this.nodes.has(id)) throw new Error(`Node ${id} already exists`);
     const now = this.clock();
     const node: GraphNode<P> = {
@@ -69,7 +75,7 @@ export class HouseholdGraph {
 
   requireNode<P extends Props = Props>(id: string): GraphNode<P> {
     const node = this.getNode<P>(id);
-    if (!node) throw new Error(`Node ${id} not found`);
+    if (!node) throw new NotFoundError(id);
     return node;
   }
 
@@ -106,7 +112,7 @@ export class HouseholdGraph {
     this.requireNode(to);
     const existing = this.edgeBetween(from, relation, to);
     if (existing) return existing;
-    const edge: GraphEdge = { id: randomUUID(), from, to, relation, createdAt: this.clock(), props };
+    const edge: GraphEdge = { id: crypto.randomUUID(), from, to, relation, createdAt: this.clock(), props };
     this.edges.set(edge.id, edge);
     this.outgoing.get(from)!.add(edge.id);
     this.incoming.get(to)!.add(edge.id);

@@ -6,7 +6,9 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
+import { bodyLimit } from 'hono/body-limit';
 import {
+  NotFoundError,
   PermissionDeniedError,
   type BillProps,
   type GraphNode,
@@ -50,6 +52,7 @@ export interface ServerOptions {
 }
 
 const SESSION_COOKIE = 'sid';
+const HOUSEHOLD_QUOTA_BYTES = 500 * 1024 * 1024;
 const INVITE_DAYS = 7;
 const RESIDENT_ROLES: Role[] = ['owner', 'family_member', 'tenant', 'child'];
 const INVITER_ROLES: Role[] = ['owner', 'family_member', 'tenant'];
@@ -64,7 +67,8 @@ export function createServer(options: ServerOptions) {
   const hub = new RealtimeHub();
   const limits = {
     login: new RateLimiter(10, 15 * 60_000),
-    signup: new RateLimiter(10, 60 * 60_000),
+    loginIp: new RateLimiter(50, 15 * 60_000),
+    signup: new RateLimiter(20, 60 * 60_000),
     invite: new RateLimiter(30, 60_000),
     message: new RateLimiter(30, 10_000),
     upload: new RateLimiter(40, 10 * 60_000),
@@ -78,6 +82,7 @@ export function createServer(options: ServerOptions) {
     if (err instanceof HttpError) return c.json({ error: err.code }, err.status);
     if (err instanceof AuthError) return c.json({ error: err.message }, err.status);
     if (err instanceof PermissionDeniedError) return c.json({ error: 'forbidden' }, 403);
+    if (err instanceof NotFoundError) return c.json({ error: 'not_found' }, 404);
     if (err instanceof SyntaxError) return c.json({ error: 'invalid_json' }, 400);
     console.error(err);
     return c.json({ error: 'server_error' }, 500);
@@ -115,7 +120,7 @@ export function createServer(options: ServerOptions) {
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       if (c.req.header('X-Requested-With') !== 'homeapp') throw new HttpError(403, 'csrf');
       const origin = c.req.header('Origin');
-      if (origin && origin !== new URL(c.req.url).origin && origin !== options.publicUrl) {
+      if (origin && origin !== options.publicUrl && !sameHost(origin, requestHost(c))) {
         throw new HttpError(403, 'csrf');
       }
     }
@@ -126,9 +131,22 @@ export function createServer(options: ServerOptions) {
     await next();
   });
 
+  const requestHost = (c: Context) =>
+    (options.trustProxy ? c.req.header('X-Forwarded-Host') : undefined) ?? c.req.header('Host') ?? new URL(c.req.url).host;
+  const isHttps = (c: Context) =>
+    options.secureCookies ?? (new URL(c.req.url).protocol === 'https:' || (options.trustProxy === true && c.req.header('X-Forwarded-Proto') === 'https'));
+  app.use('/api/*', async (c, next) => {
+    if (c.req.path.endsWith('/files')) return next();
+    return bodyLimit({ maxSize: 256 * 1024, onError: (cx) => cx.json({ error: 'body_too_large' }, 413) })(c, next);
+  });
+
   const ip = (c: Context) => {
     if (options.trustProxy) {
-      const fwd = c.req.header('X-Forwarded-For')?.split(',')[0]?.trim();
+      // Clients can prepend anything to X-Forwarded-For; the entry our own
+      // proxy appended is the last one. Fly.io also sends Fly-Client-IP.
+      const fly = c.req.header('Fly-Client-IP');
+      if (fly) return fly;
+      const fwd = c.req.header('X-Forwarded-For')?.split(',').at(-1)?.trim();
       if (fwd) return fwd;
     }
     try {
@@ -163,13 +181,13 @@ export function createServer(options: ServerOptions) {
     const { token, expiresAt } = auth.createSession(user.id);
     setCookie(c, SESSION_COOKIE, token, {
       httpOnly: true,
-      secure: options.secureCookies ?? false,
+      secure: isHttps(c),
       sameSite: 'Lax',
       path: '/',
       expires: expiresAt,
     });
   };
-  const origin = (c: Context) => options.publicUrl ?? new URL(c.req.url).origin;
+  const origin = (c: Context) => options.publicUrl ?? `${isHttps(c) ? 'https' : 'http'}://${requestHost(c)}`;
 
   // ── Auth ─────────────────────────────────────────────────────────────
   app.post('/api/auth/signup', async (c) => {
@@ -182,6 +200,7 @@ export function createServer(options: ServerOptions) {
 
   app.post('/api/auth/login', async (c) => {
     const data = await body(c);
+    limit(limits.loginIp, ip(c));
     limit(limits.login, `${ip(c)}|${String(data.email ?? '').toLowerCase()}`);
     const user = await auth.login({ email: data.email, password: data.password });
     startSession(c, user);
@@ -338,7 +357,10 @@ export function createServer(options: ServerOptions) {
     limit(limits.upload, user.id);
     const declared = Number(c.req.header('Content-Length') ?? 0);
     if (declared > MAX_UPLOAD_BYTES) throw new HttpError(413, 'file_too_large');
+    const used = (db.prepare('SELECT COALESCE(SUM(size), 0) AS s FROM files WHERE household_id = ?').get(householdId) as { s: number }).s;
+    if (used + declared > HOUSEHOLD_QUOTA_BYTES) throw new HttpError(413, 'storage_full');
     const bytes = new Uint8Array(await readLimited(c.req.raw, MAX_UPLOAD_BYTES));
+    if (used + bytes.byteLength > HOUSEHOLD_QUOTA_BYTES) throw new HttpError(413, 'storage_full');
     const saved = files.save({ householdId, uploaderId: user.id, bytes, name: c.req.header('X-File-Name') });
     if ('error' in saved) {
       throw new HttpError(saved.error === 'file_too_large' ? 413 : saved.error === 'unsupported_file_type' ? 415 : 400, saved.error);
@@ -456,7 +478,7 @@ export function createServer(options: ServerOptions) {
     const text = str(data.text, { max: 4000, field: 'text' }) ?? '';
     const fileId = str(data.fileId, { max: 100, field: 'fileId' });
     if (!text && !fileId) throw bad('message_empty');
-    if (fileId) ownUploads(user.id, householdId, [fileId]);
+    if (fileId && !ownUploads(user.id, householdId, [fileId])[0]!.mime.startsWith('image/')) throw bad('chat_images_only');
     return c.json(insertMessage(householdId, user.id, text, fileId), 201);
   });
 
@@ -700,7 +722,7 @@ export function createServer(options: ServerOptions) {
     const bill = store.mutate(householdId, (h) => h.finance.recordBill(user.id, householdId, input));
     moneyChanged(householdId);
     if (bill.props.shared) {
-      const fmt = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: bill.props.currency }).format(bill.props.amount);
+      const fmt = fmtMoney(bill.props.amount, bill.props.currency);
       insertMessage(householdId, null, `${user.name} đã thêm hóa đơn "${bill.label}" ${fmt}${bill.props.dueDate ? `, hạn ${viDate(bill.props.dueDate)}` : ''}.`);
     }
     return c.json(moneyView(store.get(householdId)!, user.id, householdId), 201);
@@ -716,6 +738,10 @@ export function createServer(options: ServerOptions) {
     const payerId = data.payerId === undefined ? user.id : memberSubset(home, householdId, [data.payerId], 'payerId')![0]!;
     store.mutate(householdId, (h) => h.finance.payBill(user.id, bill.id, payerId));
     moneyChanged(householdId);
+    if (bill.props.shared) {
+      const payer = payerId === user.id ? user.name : (home.platform.graph.getNode(payerId)?.label ?? '?');
+      insertMessage(householdId, null, `${user.name} ghi nhận: ${payer} đã trả hóa đơn "${bill.label}" ${fmtMoney(bill.props.amount, bill.props.currency)}.`);
+    }
     return c.json(moneyView(home, user.id, householdId));
   });
 
@@ -758,8 +784,12 @@ export function createServer(options: ServerOptions) {
     const [from] = memberSubset(home, householdId, [data.from], 'from')!;
     const [to] = memberSubset(home, householdId, [data.to], 'to')!;
     if (from === to) throw bad('to_invalid');
-    store.mutate(householdId, (h) => h.finance.recordSettlement(user.id, householdId, { from: from!, to: to!, amount: amount(data.amount) }));
+    const value = amount(data.amount);
+    store.mutate(householdId, (h) => h.finance.recordSettlement(user.id, householdId, { from: from!, to: to!, amount: value }));
     moneyChanged(householdId);
+    const nameOf = (id: string) => home.platform.graph.getNode(id)?.label ?? '?';
+    const currency = String(home.platform.graph.requireNode(householdId).props.currency);
+    insertMessage(householdId, null, `${user.name} ghi nhận: ${nameOf(from!)} đã chuyển ${fmtMoney(value, currency)} cho ${nameOf(to!)}.`);
     return c.json(moneyView(home, user.id, householdId), 201);
   });
 
@@ -815,6 +845,18 @@ function members(home: HomeApp, householdId: string) {
 
 function fileDto(file: StoredFile) {
   return { id: file.id, name: file.name, mime: file.mime, size: file.size, url: `/api/files/${file.id}` };
+}
+
+function fmtMoney(amount: number, currency: string): string {
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency }).format(amount);
+}
+
+function sameHost(origin: string, host: string): boolean {
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
 }
 
 function viDate(iso: string): string {

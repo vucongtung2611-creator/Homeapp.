@@ -38,7 +38,7 @@ export function seedSamples(app: HomeApp, householdId: string, ownerId: string, 
 
   const bill = app.finance.recordBill(ownerId, householdId, {
     category: 'electricity',
-    label: 'Tiền điện (mẫu)',
+    label: 'Tiền điện',
     amount: vnd ? 850_000 : 142.5,
     provider: vnd ? 'EVN' : 'Energy Co',
     dueDate: iso(5),
