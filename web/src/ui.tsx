@@ -1,6 +1,9 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { avatarColor, errorText, initials } from './util.js';
+import { ApiError } from './api.js';
+import { t } from './i18n/index.js';
+import { Illustration } from './illustrations.js';
+import { errorText } from './util.js';
 
 // ── Icons (inline, stroke = currentColor) ─────────────────────────────
 const svg = (d: ComponentChildren) => (
@@ -26,21 +29,13 @@ export const Icon = {
 };
 
 // ── Small pieces ─────────────────────────────────────────────────────
-export function Avatar({ id, name, size = 40 }: { id: string; name: string; size?: number }) {
-  return (
-    <span class="avatar" style={{ background: avatarColor(id), width: size, height: size, fontSize: size * 0.42 }} aria-hidden="true">
-      {initials(name) || '?'}
-    </span>
-  );
-}
-
-export function Spinner({ label = 'Đang tải' }: { label?: string }) {
-  return <span class="spinner" role="status" aria-label={label} />;
+export function Spinner({ label }: { label?: string }) {
+  return <span class="spinner" role="status" aria-label={label ?? t('common.loading')} />;
 }
 
 export function Skeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <div aria-busy="true" aria-label="Đang tải">
+    <div aria-busy="true" aria-label={t('common.loading')}>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} class="skeleton line" style={{ opacity: 1 - i * 0.18 }} />
       ))}
@@ -48,10 +43,10 @@ export function Skeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-export function EmptyState(props: { art: string; title: string; text: string; action?: ComponentChildren }) {
+export function EmptyState(props: { art: ComponentChildren; title: string; text: string; action?: ComponentChildren }) {
   return (
     <div class="state">
-      <div class="art" aria-hidden="true">{props.art}</div>
+      <div class="art">{props.art}</div>
       <h2>{props.title}</h2>
       <p>{props.text}</p>
       {props.action}
@@ -60,14 +55,14 @@ export function EmptyState(props: { art: string; title: string; text: string; ac
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const offline = error instanceof ApiError && error.code === 'network';
   return (
     <div class="state" role="alert">
-      <div class="art" aria-hidden="true">😕</div>
-      <h2>Chưa tải được</h2>
+      <div class="art">{offline ? <Illustration.offline /> : <Illustration.search />}</div>
       <p>{errorText(error)}</p>
       {onRetry && (
         <button class="btn secondary" onClick={onRetry}>
-          Thử lại
+          {t('common.retry')}
         </button>
       )}
     </div>
@@ -106,12 +101,12 @@ export function Sheet(props: { title: string; onClose: () => void; children: Com
         <div class="sheet-handle" />
         <div class="sheet-head">
           {props.back && (
-            <button class="icon-btn" onClick={props.back} aria-label="Quay lại">
+            <button class="icon-btn" onClick={props.back} aria-label={t('common.back')}>
               <Icon.back />
             </button>
           )}
           <h2>{props.title}</h2>
-          <button class="icon-btn" onClick={props.onClose} aria-label="Đóng">
+          <button class="icon-btn" onClick={props.onClose} aria-label={t('common.close')}>
             <Icon.close />
           </button>
         </div>
@@ -150,7 +145,7 @@ export function Toasts() {
 
 export function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
-    <div class="lightbox" onClick={onClose} role="dialog" aria-label="Xem ảnh">
+    <div class="lightbox" onClick={onClose} role="dialog" aria-label={t('common.viewPhoto')}>
       <img src={src} alt="" />
     </div>
   );

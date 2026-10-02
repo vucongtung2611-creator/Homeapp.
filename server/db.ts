@@ -66,6 +66,9 @@ const MIGRATIONS = [
      name TEXT NOT NULL,
      created_at TEXT NOT NULL
    );`,
+  // 2: language-neutral system messages + the character each person picked.
+  `ALTER TABLE messages ADD COLUMN meta TEXT;
+   ALTER TABLE users ADD COLUMN avatar TEXT;`,
 ];
 
 export function openDb(path: string): Db {

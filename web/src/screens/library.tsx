@@ -3,15 +3,15 @@ import { api, upload, type Household, type Item, type UploadedFile } from '../ap
 import { isImage, preparePhoto } from '../image.js';
 import type { Live } from '../router.js';
 import { EmptyState, ErrorState, Icon, Lightbox, Sheet, Skeleton, Spinner, Switch, toast, toastError, useLoad } from '../ui.js';
-import { errorText, viDate } from '../util.js';
+import { formatDate, formatNumber, t, type MessageKey } from '../i18n/index.js';
+import { Illustration, RoomArt } from '../illustrations.js';
+import { errorText } from '../util.js';
 
 type Kind = Item['kind'];
-const KIND: Record<Kind, { label: string; emoji: string }> = {
-  note: { label: 'Ghi chú', emoji: '📝' },
-  photo: { label: 'Ảnh', emoji: '🖼️' },
-  document: { label: 'Tài liệu', emoji: '📄' },
-  link: { label: 'Liên kết', emoji: '🔗' },
-};
+const KIND_EMOJI: Record<Kind, string> = { note: '📝', photo: '🖼️', document: '📄', link: '🔗' };
+const KIND = new Proxy({} as Record<Kind, { label: string; emoji: string }>, {
+  get: (_, k: string) => ({ label: t(`library.kinds.${k}` as MessageKey), emoji: KIND_EMOJI[k as Kind] }),
+});
 
 export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
   const [q, setQ] = useState('');
@@ -55,24 +55,24 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
         <input
           class="input"
           type="search"
-          placeholder="Tìm ghi chú, giấy tờ, ảnh…"
-          aria-label="Tìm trong thư viện"
+          placeholder={t('library.searchPlaceholder')}
+          aria-label={t('library.searchLabel')}
           value={q}
           onInput={(e) => setQ(e.currentTarget.value)}
         />
       </div>
-      <div class="chips" role="group" aria-label="Lọc">
+      <div class="chips" role="group" aria-label={t('library.filters')}>
         <button class="chip" aria-pressed={!kind && !tag} onClick={() => (setKind(undefined), setTag(undefined))}>
-          Tất cả
+          {t('library.all')}
         </button>
         {(['note', 'photo', 'document'] as Kind[]).map((k) => (
           <button class="chip" aria-pressed={kind === k} onClick={() => setKind(kind === k ? undefined : k)} key={k}>
             {KIND[k].emoji} {KIND[k].label}
           </button>
         ))}
-        {data.data?.tags.map((t) => (
-          <button class="chip" aria-pressed={tag === t.tag} onClick={() => setTag(tag === t.tag ? undefined : t.tag)} key={t.tag}>
-            #{t.tag}
+        {data.data?.tags.map((entry) => (
+          <button class="chip" aria-pressed={tag === entry.tag} onClick={() => setTag(tag === entry.tag ? undefined : entry.tag)} key={entry.tag}>
+            #{entry.tag}
           </button>
         ))}
       </div>
@@ -83,15 +83,15 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
         <ErrorState error={data.error} onRetry={() => data.reload()} />
       ) : items.length === 0 ? (
         filtered ? (
-          <EmptyState art="🔍" title="Không tìm thấy" text="Thử từ khác, hoặc bỏ bộ lọc. Tìm không cần gõ dấu: “hop dong” sẽ ra “hợp đồng”." />
+          <EmptyState art={<Illustration.search />} title={t('library.noResultsTitle')} text={t('library.noResultsText')} />
         ) : (
           <EmptyState
-            art="📚"
-            title="Thư viện còn trống"
-            text="Cất mật khẩu Wi-Fi, hợp đồng thuê nhà, ảnh bảo hành… ở đây để cả nhà tìm lại nhanh."
+            art={<RoomArt room="library" fallback="library" />}
+            title={t('library.emptyTitle')}
+            text={t('library.emptyText')}
             action={
               <button class="btn" onClick={() => setChoosing(true)}>
-                Thêm món đầu tiên
+                {t('library.addFirst')}
               </button>
             }
           />
@@ -105,23 +105,23 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
                 <span class="grow">
                   <span class="title">
                     {item.private && (
-                      <span aria-label="Riêng tư" title="Chỉ mình bạn thấy" style={{ display: 'inline-block', width: 18, verticalAlign: '-2px', marginRight: 6, color: 'var(--muted)' }}>
+                      <span class="lock" aria-label={t('library.privateLabel')} title={t('library.onlyYou')}>
                         <Icon.lock />
                       </span>
                     )}
                     {item.title}
                   </span>
                   <span class="meta">
-                    {item.body ? item.body.split('\n')[0] : item.attachments.length ? `${item.attachments.length} tệp` : KIND[item.kind].label}
+                    {item.body ? item.body.split('\n')[0] : item.attachments.length ? t('library.files', { count: item.attachments.length }) : KIND[item.kind].label}
                   </span>
                   {item.tags.length > 0 && (
                     <span style={{ display: 'block', marginTop: 6 }}>
-                      {item.tags.slice(0, 3).map((t) => (
-                        <span class="tag" key={t}>
-                          #{t}
+                      {item.tags.slice(0, 3).map((tag) => (
+                        <span class="tag" key={tag}>
+                          #{tag}
                         </span>
                       ))}
-                      {item.sample && <span class="badge">Mẫu</span>}
+                      {item.sample && <span class="badge">{t('common.sample')}</span>}
                     </span>
                   )}
                 </span>
@@ -132,11 +132,11 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
       )}
 
       <button class="fab" onClick={() => setChoosing(true)}>
-        <Icon.plus /> Thêm
+        <Icon.plus /> {t('common.add')}
       </button>
 
       {choosing && (
-        <Sheet title="Thêm vào thư viện" onClose={() => setChoosing(false)}>
+        <Sheet title={t('library.addTitle')} onClose={() => setChoosing(false)}>
           <div class="choice-grid">
             {(['note', 'photo', 'document'] as Kind[]).map((k) => (
               <button
@@ -150,7 +150,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
                 <span class="emoji">{KIND[k].emoji}</span>
                 <span>
                   <strong>{KIND[k].label}</strong>
-                  <small>{k === 'note' ? 'Mật khẩu, nội quy, số điện thoại…' : k === 'photo' ? 'Ảnh đồ đạc, bảo hành, công tơ…' : 'PDF hợp đồng, hóa đơn, giấy tờ'}</small>
+                  <small>{t(`library.kindHints.${k}` as MessageKey)}</small>
                 </span>
               </button>
             ))}
@@ -196,11 +196,11 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
   const [lightbox, setLightbox] = useState<string>();
   const [busy, setBusy] = useState(false);
   const remove = async () => {
-    if (!confirm(`Xoá “${item.title}”?`)) return;
+    if (!confirm(t('library.deleteConfirm', { title: item.title }))) return;
     setBusy(true);
     try {
       await api('DELETE', `/api/households/${home.id}/items/${item.id}`);
-      toast('Đã xoá');
+      toast(t('library.deleted'));
       props.onDeleted();
     } catch (err) {
       toastError(err);
@@ -210,8 +210,8 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
   return (
     <Sheet title={item.title} onClose={props.onClose}>
       <p class="muted" style={{ marginTop: -8 }}>
-        {KIND[item.kind].emoji} {KIND[item.kind].label} · {item.ownerName} · {viDate(item.updatedAt)}
-        {item.private && ' · 🔒 Chỉ mình bạn thấy'}
+        {t('library.meta', { kind: KIND[item.kind].label, owner: item.ownerName, date: formatDate(item.updatedAt, 'medium') })}
+        {item.private && ` · 🔒 ${t('library.onlyYou')}`}
       </p>
       {item.attachments.filter((a) => isImage(a.mime)).map((a) => (
         <img key={a.fileId} class="photo-full" src={a.url} alt={a.name} onClick={() => setLightbox(a.url)} />
@@ -222,15 +222,15 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
           <a key={a.fileId} class="doc-link" href={a.url} target="_blank" rel="noopener">
             <span class="emoji">📄</span>
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</span>
-            <span class="muted">{Math.max(1, Math.round(a.size / 1024))} KB</span>
+            <span class="muted">{t('library.size', { size: formatNumber(Math.max(1, Math.round(a.size / 1024))) })}</span>
           </a>
         ))}
       {item.body && <div class="card note-body">{item.body}</div>}
       {item.tags.length > 0 && (
         <p>
-          {item.tags.map((t) => (
-            <span class="tag" key={t}>
-              #{t}
+          {item.tags.map((tag) => (
+            <span class="tag" key={tag}>
+              #{tag}
             </span>
           ))}
         </p>
@@ -238,12 +238,12 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
       <div class="row" style={{ marginTop: 16 }}>
         {item.canEdit && (
           <button class="btn secondary" onClick={props.onEdit}>
-            Sửa
+            {t('common.edit')}
           </button>
         )}
         {item.canDelete && (
           <button class="btn danger" onClick={remove} disabled={busy}>
-            Xoá
+            {t('common.delete')}
           </button>
         )}
       </div>
@@ -309,7 +309,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
     e.preventDefault();
     const allTags = tagDraft.trim() ? [...tags, tagDraft.trim().replace(/^#/, '')] : tags;
     const attachmentIds = files.filter((f) => f.file).map((f) => f.file!.id);
-    if (!title.trim() && !attachmentIds.length) return setError('Hãy nhập tiêu đề.');
+    if (!title.trim() && !attachmentIds.length) return setError(t('library.titleRequired'));
     setBusy(true);
     setError('');
     try {
@@ -318,7 +318,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
       const saved = item
         ? await api<Item>('PATCH', `/api/households/${home.id}/items/${item.id}`, payload)
         : await api<Item>('POST', `/api/households/${home.id}/items`, { ...payload, kind: props.kind });
-      toast(item ? 'Đã lưu' : 'Đã thêm vào thư viện');
+      toast(item ? t('library.saved') : t('library.added'));
       props.onSaved(saved);
     } catch (err) {
       setError(errorText(err));
@@ -327,15 +327,15 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
   };
 
   return (
-    <Sheet title={item ? 'Sửa' : `Thêm ${KIND[props.kind].label.toLowerCase()}`} onClose={props.onClose}>
+    <Sheet title={item ? t('library.editTitle') : t(`library.addKind.${props.kind}` as MessageKey)} onClose={props.onClose}>
       <form onSubmit={save}>
         <label class="field">
-          <span>Tiêu đề</span>
-          <input class="input" name="title" value={title} onInput={(e) => setTitle(e.currentTarget.value)} maxLength={200} placeholder={props.kind === 'note' ? 'VD: Mật khẩu Wi-Fi' : 'VD: Hợp đồng thuê nhà'} />
+          <span>{t('library.title')}</span>
+          <input class="input" name="title" value={title} onInput={(e) => setTitle(e.currentTarget.value)} maxLength={200} placeholder={props.kind === 'note' ? t('library.titlePlaceholderNote') : t('library.titlePlaceholderOther')} />
         </label>
         {(wantsFiles || files.length > 0) && (
           <div class="field">
-            <span>Tệp đính kèm</span>
+            <span>{t('library.attachments')}</span>
             <div class="attach-grid">
               {files.map((f) => (
                 <div class="thumb" key={f.key}>
@@ -348,13 +348,13 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
                     </span>
                   )}
                   {f.error && <span style={{ position: 'relative', color: 'var(--danger)', background: 'var(--surface)', borderRadius: 8, padding: 4 }}>{f.error}</span>}
-                  <button type="button" class="x" aria-label={`Bỏ ${f.name}`} onClick={() => setFiles((cur) => cur.filter((x) => x.key !== f.key))}>
+                  <button type="button" class="x" aria-label={t('library.removeFile', { name: f.name })} onClick={() => setFiles((cur) => cur.filter((x) => x.key !== f.key))}>
                     ×
                   </button>
                 </div>
               ))}
               <button type="button" class="thumb" style={{ border: '2px dashed var(--line)', cursor: 'pointer', background: 'transparent' }} onClick={() => fileRef.current?.click()}>
-                ＋ Thêm tệp
+                ＋ {t('library.addFile')}
               </button>
             </div>
             <input
@@ -368,28 +368,28 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
                 e.currentTarget.value = '';
               }}
             />
-            <p class="hint">Ảnh được thu nhỏ và xoá thông tin vị trí. PDF tối đa 10 MB.</p>
+            <p class="hint">{t('library.fileHint')}</p>
           </div>
         )}
         <label class="field">
-          <span>{props.kind === 'note' ? 'Nội dung' : 'Ghi chú (không bắt buộc)'}</span>
+          <span>{props.kind === 'note' ? t('library.body') : t('library.bodyOptional')}</span>
           <textarea class="input" name="body" value={body} onInput={(e) => setBody(e.currentTarget.value)} maxLength={20000} rows={props.kind === 'note' ? 6 : 3} />
         </label>
         <div class="field">
-          <span>Nhãn</span>
+          <span>{t('library.tags')}</span>
           <div class="input tag-input" onClick={(e) => (e.currentTarget.querySelector('input') as HTMLInputElement)?.focus()}>
-            {tags.map((t) => (
-              <span class="tag" key={t}>
-                #{t}
-                <button type="button" aria-label={`Bỏ nhãn ${t}`} onClick={() => setTags(tags.filter((x) => x !== t))}>
+            {tags.map((tag) => (
+              <span class="tag" key={tag}>
+                #{tag}
+                <button type="button" aria-label={t('library.removeTag', { tag })} onClick={() => setTags(tags.filter((x) => x !== tag))}>
                   ×
                 </button>
               </span>
             ))}
             <input
               value={tagDraft}
-              placeholder={tags.length ? '' : 'VD: nhà, giấy tờ (Enter để thêm)'}
-              aria-label="Thêm nhãn"
+              placeholder={tags.length ? '' : t('library.tagsPlaceholder')}
+              aria-label={t('library.addTag')}
               onInput={(e) => {
                 const v = e.currentTarget.value;
                 if (v.endsWith(',')) {
@@ -408,7 +408,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
           </div>
         </div>
         {(!item || item.canChangePrivacy) && (
-          <Switch checked={isPrivate} onChange={setPrivate} label="🔒 Chỉ mình tôi thấy" hint="Người khác trong nhà sẽ không thấy món này." />
+          <Switch checked={isPrivate} onChange={setPrivate} label={`🔒 ${t('library.privateSwitch')}`} hint={t('library.privateHint')} />
         )}
         {error && (
           <p class="error-text" role="alert">
@@ -416,7 +416,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
           </p>
         )}
         <button class="btn block" type="submit" disabled={busy || uploading} style={{ marginTop: 12 }}>
-          {busy ? <Spinner /> : uploading ? 'Đang tải tệp lên…' : 'Lưu'}
+          {busy ? <Spinner /> : uploading ? t('common.uploading') : t('common.save')}
         </button>
       </form>
     </Sheet>

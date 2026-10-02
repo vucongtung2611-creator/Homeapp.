@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { DEFAULT_CHARACTER, isCharacter } from '../src/characters.js';
 import type { Db } from './db.js';
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>;
@@ -10,6 +11,8 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /** Character id from src/characters.ts. */
+  avatar: string;
 }
 
 export class AuthError extends Error {
@@ -63,17 +66,19 @@ export function validateName(raw: unknown): string {
 export class Auth {
   constructor(private readonly db: Db) {}
 
-  async signup(input: { email: unknown; password: unknown; name: unknown }): Promise<User> {
+  async signup(input: { email: unknown; password: unknown; name: unknown; avatar?: unknown }): Promise<User> {
     const email = validateEmail(input.email);
     const password = validatePassword(input.password);
     const name = validateName(input.name);
+    if (input.avatar !== undefined && !isCharacter(input.avatar)) throw new AuthError('avatar_invalid');
+    const avatar = (input.avatar as string | undefined) ?? DEFAULT_CHARACTER;
     if (this.db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) throw new AuthError('email_taken', 409);
-    const user: User = { id: `u_${randomUUID()}`, email, name };
+    const user: User = { id: `u_${randomUUID()}`, email, name, avatar };
     const hash = await hashPassword(password);
     try {
       this.db
-        .prepare('INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(user.id, email, name, hash, new Date().toISOString());
+        .prepare('INSERT INTO users (id, email, name, password_hash, created_at, avatar) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(user.id, email, name, hash, new Date().toISOString(), avatar);
     } catch {
       throw new AuthError('email_taken', 409); // lost a race on the unique index
     }
@@ -83,7 +88,7 @@ export class Auth {
   async login(input: { email: unknown; password: unknown }): Promise<User> {
     const email = String(input.email ?? '').trim().toLowerCase();
     const password = String(input.password ?? '');
-    const row = this.db.prepare('SELECT id, email, name, password_hash FROM users WHERE email = ?').get(email) as
+    const row = this.db.prepare('SELECT id, email, name, avatar, password_hash FROM users WHERE email = ?').get(email) as
       | (User & { password_hash: string })
       | undefined;
     if (!row) {
@@ -92,7 +97,7 @@ export class Auth {
       throw new AuthError('invalid_credentials', 401);
     }
     if (!(await verifyPassword(password, row.password_hash))) throw new AuthError('invalid_credentials', 401);
-    return { id: row.id, email: row.email, name: row.name };
+    return toUser(row);
   }
 
   createSession(userId: string): { token: string; expiresAt: Date } {
@@ -108,7 +113,7 @@ export class Auth {
     if (!token || token.length > 100) return undefined;
     const row = this.db
       .prepare(
-        `SELECT u.id, u.email, u.name, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`,
+        `SELECT u.id, u.email, u.name, u.avatar, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`,
       )
       .get(sha256(token)) as (User & { expires_at: string }) | undefined;
     if (!row) return undefined;
@@ -116,7 +121,7 @@ export class Auth {
       this.destroySession(token);
       return undefined;
     }
-    return { id: row.id, email: row.email, name: row.name };
+    return toUser(row);
   }
 
   destroySession(token: string): void {
@@ -124,8 +129,27 @@ export class Auth {
   }
 
   getUser(id: string): User | undefined {
-    return this.db.prepare('SELECT id, email, name FROM users WHERE id = ?').get(id) as User | undefined;
+    const row = this.db.prepare('SELECT id, email, name, avatar FROM users WHERE id = ?').get(id) as User | undefined;
+    return row && toUser(row);
   }
+
+  setAvatar(userId: string, avatar: unknown): void {
+    if (!isCharacter(avatar)) throw new AuthError('avatar_invalid');
+    this.db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, userId);
+  }
+
+  /** Characters for a set of users (missing → default). */
+  avatars(ids: string[]): Record<string, string> {
+    if (ids.length === 0) return {};
+    const rows = this.db
+      .prepare(`SELECT id, avatar FROM users WHERE id IN (${ids.map(() => '?').join(',')})`)
+      .all(...ids) as { id: string; avatar: string | null }[];
+    return Object.fromEntries(rows.map((r) => [r.id, isCharacter(r.avatar) ? r.avatar : DEFAULT_CHARACTER]));
+  }
+}
+
+function toUser(row: { id: string; email: string; name: string; avatar?: string | null }): User {
+  return { id: row.id, email: row.email, name: row.name, avatar: isCharacter(row.avatar) ? row.avatar : DEFAULT_CHARACTER };
 }
 
 /** Fixed-window in-memory limiter: plenty for a single-instance beta. */

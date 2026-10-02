@@ -83,6 +83,24 @@ test('sample data: new homes start with samples the owner can clear', async () =
   assert.deepEqual((await linh.get(`/api/households/${hid}/money`)).data.bills, []);
 });
 
+test('sample content follows the creator’s language; avatars are characters', async () => {
+  const server = testServer();
+  const c = new Client(server);
+  const res = await c.post('/api/auth/signup', { name: 'Mai', email: 'mai@example.com', password: 'long enough', avatar: 'grandpa' });
+  assert.equal(res.data.user.avatar, 'grandpa');
+  assert.equal((await new Client(server).post('/api/auth/signup', { name: 'X', email: 'x@example.com', password: 'long enough', avatar: 'dragon' })).data.error, 'avatar_invalid');
+  const en = (await c.post('/api/households', { name: 'A', locale: 'en-AU', currency: 'AUD' })).data.id;
+  const vi = (await c.post('/api/households', { name: 'B', locale: 'vi', currency: 'VND' })).data.id;
+  const titles = async (hid: string) => (await c.get(`/api/households/${hid}/items`)).data.items.map((i: { title: string }) => i.title).sort();
+  assert.ok((await titles(en)).includes('Home Wi-Fi'));
+  assert.ok((await titles(vi)).includes('Wi-Fi nhà mình'));
+  assert.deepEqual((await c.get(`/api/households/${en}/messages`)).data.messages[0].system, { key: 'welcome' });
+
+  assert.equal((await c.patch('/api/me', { avatar: 'boy' })).data.user.avatar, 'boy');
+  assert.equal((await c.patch('/api/me', { avatar: '../../etc' })).status, 400);
+  assert.equal((await c.get(`/api/households/${en}`)).data.members[0].avatar, 'boy');
+});
+
 test('data survives a server restart', async () => {
   const first = testServer();
   const { hid, clients } = await houseOf(first, ['Linh', 'An']);

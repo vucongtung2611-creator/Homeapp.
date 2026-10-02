@@ -22,7 +22,7 @@ export interface Live {
 }
 
 export interface Session {
-  user: { id: string; email: string; name: string } | null;
+  user: { id: string; email: string; name: string; avatar: string } | null;
   households: { id: string; name: string; role: string }[];
   refresh: () => Promise<void>;
 }

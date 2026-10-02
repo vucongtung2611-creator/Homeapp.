@@ -98,8 +98,11 @@ test('chat: members only, own messages deletable, history paginates', async () =
   assert.equal((await linh.del(`/api/households/${hid}/messages/${m.data.id}`)).status, 403);
   assert.equal((await an.post(`/api/households/${hid}/messages`, { text: '   ' })).data.error, 'message_empty');
   const list = await linh.get(`/api/households/${hid}/messages`);
-  // Includes the "An joined" system message.
-  assert.deepEqual(list.data.messages.map((x: { text: string }) => x.text), ['An đã vào nhà 🎉', 'Tối nay ăn gì?']);
+  // System messages carry a key + params (translated on each device); people's text is stored as typed.
+  assert.deepEqual(
+    list.data.messages.map((x: { text: string; system: unknown }) => x.system ?? x.text),
+    [{ key: 'joined', params: { name: 'An' } }, 'Tối nay ăn gì?'],
+  );
   assert.equal((await an.del(`/api/households/${hid}/messages/${m.data.id}`)).status, 200);
 });
 

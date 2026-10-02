@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { RuleBasedExtractor, parseAmount, type BillFact, type ReceiptFact } from '../../../src/integrations/understand.js';
 import { currencyDigits, splitEvenly } from '../../../src/modules/finance.js';
 import { api, type Bill, type Household, type Member, type Money } from '../api.js';
+import { CharacterAvatar } from '../characters.js';
+import { formatAmountInput, formatDate, formatList, formatMoney, t } from '../i18n/index.js';
+import { RoomArt } from '../illustrations.js';
 import { readTextFromImage } from '../ocr.js';
 import type { Live } from '../router.js';
-import { Avatar, EmptyState, ErrorState, Icon, Sheet, Skeleton, Spinner, Switch, toast, toastError, useLoad } from '../ui.js';
-import { CATEGORY, amountInput, dueText, errorText, money, todayIso, viDate } from '../util.js';
+import { EmptyState, ErrorState, Icon, Sheet, Skeleton, Spinner, Switch, toast, toastError, useLoad } from '../ui.js';
+import { CATEGORIES, CATEGORY_EMOJI, categoryLabel, dueText, errorText, todayIso } from '../util.js';
 
 const RESIDENT = ['owner', 'tenant', 'family_member', 'child'];
 
@@ -17,13 +20,14 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
 
   const m = data.data;
   const me = home.me.id;
-  const name = (id: string) => (id === me ? 'Bạn' : (m?.members.find((x) => x.id === id)?.name ?? home.members.find((x) => x.id === id)?.name ?? 'Người cũ'));
+  const member = (id: string) => m?.members.find((x) => x.id === id) ?? home.members.find((x) => x.id === id);
+  const name = (id: string) => (id === me ? t('common.you') : (member(id)?.name ?? t('common.formerMember')));
   const residents = home.members.filter((x) => RESIDENT.includes(x.role));
 
   if (data.loading && !m)
     return (
       <div class="page">
-        <div class="skeleton" style={{ height: 150, marginBottom: 14 }} />
+        <div class="skeleton" style={{ height: 140, marginBottom: 12 }} />
         <Skeleton rows={3} />
       </div>
     );
@@ -40,12 +44,13 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
   const unpaid = m.bills.filter((b) => b.status === 'unpaid');
   const paid = m.bills.filter((b) => b.status === 'paid');
 
-  const settle = async (t: { from: string; to: string; amount: number }) => {
-    const label = t.from === me ? `Xác nhận bạn đã chuyển ${money(t.amount, m.currency)} cho ${name(t.to)}?` : `Xác nhận bạn đã nhận ${money(t.amount, m.currency)} từ ${name(t.from)}?`;
-    if (!confirm(label)) return;
+  const settle = async (tr: { from: string; to: string; amount: number }) => {
+    const amount = formatMoney(tr.amount, m.currency);
+    const question = tr.from === me ? t('bills.confirmPaid', { amount, name: name(tr.to) }) : t('bills.confirmReceived', { amount, name: name(tr.from) });
+    if (!confirm(question)) return;
     try {
-      data.setData(await api<Money>('POST', `/api/households/${home.id}/settlements`, t));
-      toast('Đã ghi nhận 👍');
+      data.setData(await api<Money>('POST', `/api/households/${home.id}/settlements`, tr));
+      toast(t('bills.recorded'));
     } catch (err) {
       toastError(err);
     }
@@ -53,25 +58,11 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
 
   return (
     <div class="page">
-      <section class="card brand" aria-label="Tình hình của bạn">
-        {myBalance < 0 ? (
-          <>
-            <div class="muted">Bạn cần trả</div>
-            <div class="big-number">{money(-myBalance, m.currency)}</div>
-          </>
-        ) : myBalance > 0 ? (
-          <>
-            <div class="muted">Mọi người còn nợ bạn</div>
-            <div class="big-number">{money(myBalance, m.currency)}</div>
-          </>
-        ) : (
-          <>
-            <div class="muted">Tình hình của bạn</div>
-            <div class="big-number">Sòng phẳng ✨</div>
-          </>
-        )}
-        <div class="muted" style={{ fontSize: 16 }}>
-          {unpaid.length ? `${unpaid.length} hóa đơn chưa trả` : 'Không có hóa đơn chưa trả'}
+      <section class={`card hero ${myBalance < 0 ? 'owe' : myBalance > 0 ? 'owed' : ''}`} aria-label={t('bills.balance')}>
+        <div class="muted">{myBalance < 0 ? t('bills.youOwe') : myBalance > 0 ? t('bills.owedToYou') : t('bills.balance')}</div>
+        <div class="big-number">{myBalance === 0 ? t('bills.allSquare') : formatMoney(Math.abs(myBalance), m.currency)}</div>
+        <div class="muted" style={{ fontSize: 15 }}>
+          {t('bills.unpaid', { count: unpaid.length })}
         </div>
       </section>
 
@@ -85,31 +76,29 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
             onClick={() => r.billId && setOpenBill(r.billId)}
           >
             <span aria-hidden="true">{r.kind === 'bill_overdue' ? '⏰' : '🔔'}</span>
-            <span style={{ flex: 1 }}>
-              {r.label}: {dueText(r.dueDate).text.toLowerCase()} · {money(r.amount, m.currency)}
-            </span>
+            <span style={{ flex: 1 }}>{t('bills.reminder', { label: r.label, due: dueText(r.dueDate).text, amount: formatMoney(r.amount, m.currency) })}</span>
           </button>
         ))}
 
-      <h2 class="section-title">Ai nợ ai</h2>
+      <h2 class="section-title">{t('bills.whoOwes')}</h2>
       <section class="card">
         {m.transfers.length === 0 ? (
           <p class="muted" style={{ margin: 0 }}>
-            Không ai nợ ai. Khi có người trả một hóa đơn chung, phần của từng người sẽ hiện ở đây.
+            {t('bills.nobodyOwes')}
           </p>
         ) : (
-          m.transfers.map((t) => (
-            <div class="transfer" key={`${t.from}-${t.to}`}>
-              <Avatar id={t.from} name={name(t.from)} />
+          m.transfers.map((tr) => (
+            <div class="transfer" key={`${tr.from}-${tr.to}`}>
+              <CharacterAvatar id={member(tr.from)?.avatar} size={36} />
               <div class="grow">
                 <div>
-                  <strong>{name(t.from)}</strong> → <strong>{name(t.to)}</strong>
+                  <strong>{name(tr.from)}</strong> → <strong>{name(tr.to)}</strong>
                 </div>
-                <div class="amount">{money(t.amount, m.currency)}</div>
+                <div class="amount">{formatMoney(tr.amount, m.currency)}</div>
               </div>
-              {(t.from === me || t.to === me) && (
-                <button class="btn small secondary" onClick={() => settle(t)}>
-                  {t.from === me ? 'Đã trả' : 'Đã nhận'}
+              {(tr.from === me || tr.to === me) && (
+                <button class="btn small secondary" onClick={() => settle(tr)}>
+                  {tr.from === me ? t('bills.paidButton') : t('bills.receivedButton')}
                 </button>
               )}
             </div>
@@ -117,15 +106,15 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
         )}
       </section>
 
-      <h2 class="section-title">Hóa đơn</h2>
+      <h2 class="section-title">{t('bills.title')}</h2>
       {m.bills.length === 0 ? (
         <EmptyState
-          art="🧾"
-          title="Chưa có hóa đơn"
-          text="Dán email hóa đơn hoặc chụp ảnh, app sẽ tự tách số tiền, hạn trả và chia cho mọi người."
+          art={<RoomArt room="bills" fallback="bills" />}
+          title={t('bills.emptyTitle')}
+          text={t('bills.emptyText')}
           action={
             <button class="btn" onClick={() => setAdding('bill')}>
-              Thêm hóa đơn
+              {t('bills.addBill')}
             </button>
           }
         />
@@ -136,27 +125,27 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
             const mine = b.shares[me];
             return (
               <li key={b.id}>
-                <button class="list-item" onClick={() => setOpenBill(b.id)} style={b.status === 'paid' ? { opacity: 0.72 } : undefined}>
-                  <span class="emoji">{CATEGORY[b.category]?.emoji ?? '🧾'}</span>
+                <button class="list-item" onClick={() => setOpenBill(b.id)} style={b.status === 'paid' ? { opacity: 0.7 } : undefined}>
+                  <span class="emoji">{CATEGORY_EMOJI[b.category] ?? '🧾'}</span>
                   <span class="grow">
                     <span class="title">{b.label}</span>
-                    <span class="meta">
+                    <span class="meta badges">
                       {b.status === 'paid' ? (
-                        <span class="badge ok">{name(b.payerId ?? '')} đã trả</span>
+                        <span class="badge ok">{t('bills.paidBy', { name: name(b.payerId ?? '') })}</span>
                       ) : (
                         <span class={`badge ${due.tone}`}>{due.text}</span>
-                      )}{' '}
-                      {!b.shared && <span class="badge">🔒 Riêng</span>}
-                      {b.sample && <span class="badge">Mẫu</span>}
+                      )}
+                      {!b.shared && <span class="badge">🔒 {t('bills.personal')}</span>}
+                      {b.sample && <span class="badge">{t('common.sample')}</span>}
                     </span>
                   </span>
                   <span style={{ textAlign: 'right' }}>
                     <span class="amount" style={{ display: 'block' }}>
-                      {money(b.amount, b.currency)}
+                      {formatMoney(b.amount, b.currency)}
                     </span>
                     {mine !== undefined && b.shared && (
-                      <span class="meta" style={{ fontSize: 14 }}>
-                        Phần bạn {money(mine, b.currency)}
+                      <span class="meta" style={{ fontSize: 13 }}>
+                        {t('bills.yourShare', { amount: formatMoney(mine, b.currency) })}
                       </span>
                     )}
                   </span>
@@ -169,24 +158,31 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
 
       {m.expenses.length > 0 && (
         <>
-          <h2 class="section-title">Chi tiêu &amp; chuyển tiền</h2>
+          <h2 class="section-title">{t('bills.activity')}</h2>
           <ul class="list">
             {m.expenses.slice(0, 20).map((x) => (
               <li key={x.id} class="list-item" style={{ cursor: 'default' }}>
                 <span class="emoji">{x.kind === 'settlement' ? '🤝' : x.shared ? '🛒' : '🔒'}</span>
                 <span class="grow">
-                  <span class="title">{x.kind === 'settlement' ? `${name(x.paidBy)} trả ${name(x.participants[0] ?? '')}` : x.label}</span>
+                  <span class="title">
+                    {x.kind === 'settlement' ? t('bills.settlementLabel', { from: name(x.paidBy), to: name(x.participants[0] ?? '') }) : x.label}
+                  </span>
                   <span class="meta">
-                    {viDate(x.date)} · {x.kind === 'settlement' ? 'Chuyển tiền' : x.shared ? `${name(x.paidBy)} trả, chia ${x.participants.length} người` : 'Chi tiêu riêng'}
+                    {formatDate(x.date)} ·{' '}
+                    {x.kind === 'settlement'
+                      ? t('bills.payment')
+                      : x.shared
+                        ? t('bills.sharedBy', { name: name(x.paidBy), count: x.participants.length })
+                        : t('bills.personalExpense')}
                   </span>
                 </span>
-                <span class="amount">{money(x.amount, m.currency)}</span>
+                <span class="amount">{formatMoney(x.amount, m.currency)}</span>
                 {x.canDelete && (
                   <button
                     class="icon-btn"
-                    aria-label="Xoá"
+                    aria-label={t('bills.deleteItem')}
                     onClick={async () => {
-                      if (!confirm('Xoá mục này?')) return;
+                      if (!confirm(t('bills.deleteConfirm'))) return;
                       try {
                         data.setData(await api<Money>('DELETE', `/api/households/${home.id}/money/${x.id}`));
                       } catch (err) {
@@ -204,24 +200,24 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
       )}
 
       <button class="fab" onClick={() => setAdding('choose')}>
-        <Icon.plus /> Thêm
+        <Icon.plus /> {t('common.add')}
       </button>
 
       {adding === 'choose' && (
-        <Sheet title="Thêm" onClose={() => setAdding(undefined)}>
+        <Sheet title={t('bills.addTitle')} onClose={() => setAdding(undefined)}>
           <div class="choice-grid">
             <button class="choice" onClick={() => setAdding('bill')}>
               <span class="emoji">🧾</span>
               <span>
-                <strong>Hóa đơn</strong>
-                <small>Dán email, chụp ảnh, hoặc nhập tay. Điện, nước, internet, tiền nhà…</small>
+                <strong>{t('bills.billChoice')}</strong>
+                <small>{t('bills.billChoiceHint')}</small>
               </span>
             </button>
             <button class="choice" onClick={() => setAdding('expense')}>
               <span class="emoji">🛒</span>
               <span>
-                <strong>Chi tiêu chung</strong>
-                <small>Đi chợ, đồ dùng chung, ai đó trả trước cho cả nhà</small>
+                <strong>{t('bills.expenseChoice')}</strong>
+                <small>{t('bills.expenseChoiceHint')}</small>
               </span>
             </button>
           </div>
@@ -235,7 +231,7 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
           onSaved={(next) => {
             data.setData(next);
             setAdding(undefined);
-            toast('Đã thêm hóa đơn');
+            toast(t('bills.billAdded'));
           }}
         />
       )}
@@ -247,16 +243,25 @@ export function BillsScreen({ home, live }: { home: Household; live: Live }) {
           onSaved={(next) => {
             data.setData(next);
             setAdding(undefined);
-            toast('Đã thêm chi tiêu');
+            toast(t('bills.expenseAdded'));
           }}
         />
       )}
-      {bill && <BillSheet bill={bill} home={home} name={name} onClose={() => setOpenBill(undefined)} onChanged={(next) => data.setData(next)} />}
+      {bill && (
+        <BillSheet bill={bill} home={home} name={name} avatar={(id) => member(id)?.avatar} onClose={() => setOpenBill(undefined)} onChanged={(next) => data.setData(next)} />
+      )}
     </div>
   );
 }
 
-function BillSheet(props: { bill: Bill; home: Household; name: (id: string) => string; onClose: () => void; onChanged: (m: Money) => void }) {
+function BillSheet(props: {
+  bill: Bill;
+  home: Household;
+  name: (id: string) => string;
+  avatar: (id: string) => string | undefined;
+  onClose: () => void;
+  onChanged: (m: Money) => void;
+}) {
   const { bill, home, name } = props;
   const me = home.me.id;
   const [busy, setBusy] = useState(false);
@@ -272,63 +277,68 @@ function BillSheet(props: { bill: Bill; home: Household; name: (id: string) => s
     }
   };
   const due = dueText(bill.dueDate);
+  const people = Object.keys(bill.shares).length;
   return (
     <Sheet title={bill.label} onClose={props.onClose}>
-      <div class="big-number">{money(bill.amount, bill.currency)}</div>
+      <div class="big-number">{formatMoney(bill.amount, bill.currency)}</div>
       <p class="muted" style={{ marginTop: 4 }}>
-        {CATEGORY[bill.category]?.emoji} {CATEGORY[bill.category]?.label ?? bill.category}
+        {CATEGORY_EMOJI[bill.category]} {categoryLabel(bill.category)}
         {bill.provider ? ` · ${bill.provider}` : ''}
       </p>
       <div class="card">
         <div class="row" style={{ marginBottom: 8 }}>
-          <span class="muted">Hạn trả</span>
-          <span style={{ textAlign: 'right' }}>{bill.dueDate ? `${viDate(bill.dueDate)}` : '—'}</span>
+          <span class="muted">{t('bills.dueDate')}</span>
+          <span style={{ textAlign: 'right' }}>{bill.dueDate ? formatDate(bill.dueDate, 'medium') : '—'}</span>
         </div>
         {(bill.periodStart || bill.periodEnd) && (
           <div class="row" style={{ marginBottom: 8 }}>
-            <span class="muted">Kỳ thanh toán</span>
+            <span class="muted">{t('bills.period')}</span>
             <span style={{ textAlign: 'right' }}>
-              {viDate(bill.periodStart)} – {viDate(bill.periodEnd)}
+              {formatDate(bill.periodStart)} – {formatDate(bill.periodEnd)}
             </span>
           </div>
         )}
         <div class="row">
-          <span class="muted">Trạng thái</span>
+          <span class="muted">{t('bills.status')}</span>
           <span style={{ textAlign: 'right' }}>
-            {bill.status === 'paid' ? <span class="badge ok">{name(bill.payerId ?? '')} đã trả</span> : <span class={`badge ${due.tone}`}>{due.text}</span>}
+            {bill.status === 'paid' ? (
+              <span class="badge ok">{t('bills.paidBy', { name: name(bill.payerId ?? '') })}</span>
+            ) : (
+              <span class={`badge ${due.tone}`}>{due.text}</span>
+            )}
           </span>
         </div>
       </div>
       <h3 class="section-title" style={{ marginTop: 18 }}>
-        {bill.shared ? `Chia cho ${Object.keys(bill.shares).length} người` : 'Hóa đơn riêng của bạn'}
+        {bill.shared ? t('bills.splitBetween', { count: people }) : t('bills.personalBill')}
       </h3>
       <div class="card">
         {Object.entries(bill.shares).map(([id, share]) => (
           <div class="member" key={id}>
-            <Avatar id={id} name={name(id)} />
+            <CharacterAvatar id={props.avatar(id)} size={34} />
             <span style={{ flex: 1 }}>{name(id)}</span>
-            <strong>{money(share, bill.currency)}</strong>
+            <strong>{formatMoney(share, bill.currency)}</strong>
           </div>
         ))}
       </div>
       {bill.status === 'unpaid' ? (
         <>
-          <button class="btn block" disabled={busy} onClick={() => run(() => api('POST', `/api/households/${home.id}/bills/${bill.id}/pay`, {}), 'Đã ghi nhận bạn trả hóa đơn')}>
-            {busy ? <Spinner /> : 'Tôi đã trả hóa đơn này'}
+          <button class="btn block" disabled={busy} onClick={() => run(() => api('POST', `/api/households/${home.id}/bills/${bill.id}/pay`, {}), t('bills.paidRecorded'))}>
+            {busy ? <Spinner /> : t('bills.iPaid')}
           </button>
           {bill.shared && (
             <label class="field" style={{ marginTop: 14 }}>
-              <span>Hoặc người khác đã trả:</span>
+              <span>{t('bills.someoneElse')}</span>
               <select
                 class="input"
                 value=""
                 disabled={busy}
                 onChange={(e) => {
                   const payerId = e.currentTarget.value;
-                  if (payerId) void run(() => api('POST', `/api/households/${home.id}/bills/${bill.id}/pay`, { payerId }), `Đã ghi nhận ${name(payerId)} trả`);
+                  if (payerId) void run(() => api('POST', `/api/households/${home.id}/bills/${bill.id}/pay`, { payerId }), t('bills.payerRecorded', { name: name(payerId) }));
                 }}
               >
-                <option value="">Chọn người đã trả…</option>
+                <option value="">{t('bills.chooseWhoPaid')}</option>
                 {Object.keys(bill.shares)
                   .filter((id) => id !== me)
                   .map((id) => (
@@ -339,11 +349,11 @@ function BillSheet(props: { bill: Bill; home: Household; name: (id: string) => s
               </select>
             </label>
           )}
-          <p class="hint">Người trả sẽ được những người còn lại trả lại phần của họ — xem ở mục “Ai nợ ai”.</p>
+          <p class="hint">{t('bills.payerHint')}</p>
         </>
       ) : (
-        <button class="btn block secondary" disabled={busy} onClick={() => run(() => api('POST', `/api/households/${home.id}/bills/${bill.id}/unpay`), 'Đã hoàn tác')}>
-          Hoàn tác: chưa trả
+        <button class="btn block secondary" disabled={busy} onClick={() => run(() => api('POST', `/api/households/${home.id}/bills/${bill.id}/unpay`), t('bills.undone'))}>
+          {t('bills.undo')}
         </button>
       )}
       {bill.canDelete && (
@@ -352,12 +362,12 @@ function BillSheet(props: { bill: Bill; home: Household; name: (id: string) => s
           style={{ color: 'var(--danger)', marginTop: 8 }}
           disabled={busy}
           onClick={async () => {
-            if (!confirm(`Xoá hóa đơn “${bill.label}”?`)) return;
-            await run(() => api('DELETE', `/api/households/${home.id}/money/${bill.id}`), 'Đã xoá hóa đơn');
+            if (!confirm(t('bills.deleteBillConfirm', { label: bill.label }))) return;
+            await run(() => api('DELETE', `/api/households/${home.id}/money/${bill.id}`), t('bills.billDeleted'));
             props.onClose();
           }}
         >
-          Xoá hóa đơn
+          {t('bills.deleteBill')}
         </button>
       )}
     </Sheet>
@@ -376,12 +386,34 @@ interface BillDraft {
   responsible: string[];
 }
 
+const youSuffix = (r: Member, me: string) => (r.id === me ? t('common.youSuffix', { name: r.name }) : r.name);
+
+function SplitList(props: { residents: Member[]; me: string; selected: string[]; onChange: (ids: string[]) => void; shares: Record<string, number>; currency: string }) {
+  return (
+    <fieldset class="card" style={{ border: '1px solid var(--line)', marginTop: 8 }}>
+      <legend class="sr-only">{t('addBill.splitWith')}</legend>
+      {props.residents.map((r) => (
+        <label class="check" key={r.id}>
+          <input
+            type="checkbox"
+            checked={props.selected.includes(r.id)}
+            onChange={(e) => props.onChange(e.currentTarget.checked ? [...props.selected, r.id] : props.selected.filter((x) => x !== r.id))}
+          />
+          <CharacterAvatar id={r.avatar} size={28} />
+          <span style={{ flex: 1 }}>{youSuffix(r, props.me)}</span>
+          {props.shares[r.id] !== undefined && <strong>{formatMoney(props.shares[r.id]!, props.currency)}</strong>}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 function AddBillSheet(props: { home: Household; residents: Member[]; onClose: () => void; onSaved: (m: Money) => void }) {
   const { home, residents } = props;
   const [step, setStep] = useState<'capture' | 'review'>('capture');
   const [text, setText] = useState('');
   const [ocr, setOcr] = useState<{ progress: number; stage: string } | undefined>();
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<{ text: string; ok: boolean }>();
   const [draft, setDraft] = useState<BillDraft>({
     label: '',
     category: 'electricity',
@@ -398,6 +430,7 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const extractor = useMemo(() => new RuleBasedExtractor({ defaultCurrency: home.currency }), [home.currency]);
+  const set = <K extends keyof BillDraft>(k: K, v: BillDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   const analyse = (raw: string) => {
     const facts = extractor.extract({ source: 'manual', body: raw, receivedAt: new Date() });
@@ -408,20 +441,21 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
     setDraft((d) => ({
       ...d,
       category,
-      label: CATEGORY[category]?.label ?? 'Hóa đơn',
-      amount: amountFound ? amountInput(amountFound, home.currency) : '',
+      label: categoryLabel(category),
+      amount: amountFound ? formatAmountInput(amountFound, home.currency) : '',
       dueDate: bill?.dueDate ?? '',
       periodStart: bill?.periodStart ?? '',
       periodEnd: bill?.periodEnd ?? '',
       provider: bill?.provider ?? receipt?.retailer ?? '',
     }));
-    const currencyMismatch = (bill?.currency ?? receipt?.currency) && (bill?.currency ?? receipt?.currency) !== home.currency;
-    const found = [amountFound && 'số tiền', bill?.dueDate && 'hạn trả', bill?.periodStart && 'kỳ thanh toán'].filter(Boolean);
-    setNotice(
-      found.length
-        ? `Đã tìm thấy ${found.join(', ')}. Kiểm tra lại trước khi lưu.${currencyMismatch ? ` Lưu ý: hóa đơn có vẻ dùng ${bill?.currency ?? receipt?.currency}, nhà bạn dùng ${home.currency}.` : ''}`
-        : 'Không tìm thấy số tiền. Hãy nhập tay bên dưới.',
-    );
+    const found = [
+      amountFound && t('addBill.foundAmount'),
+      bill?.dueDate && t('addBill.foundDue'),
+      bill?.periodStart && t('addBill.foundPeriod'),
+    ].filter((x): x is string => Boolean(x));
+    const billCurrency = bill?.currency ?? receipt?.currency;
+    const mismatch = billCurrency && billCurrency !== home.currency ? ` ${t('addBill.currencyMismatch', { bill: billCurrency, home: home.currency })}` : '';
+    setNotice(found.length ? { text: t('addBill.found', { fields: formatList(found) }) + mismatch, ok: true } : { text: t('addBill.notFound'), ok: false });
     setStep('review');
   };
 
@@ -436,7 +470,7 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
       analyse(raw);
     } catch {
       setOcr(undefined);
-      setError('Không đọc được chữ trong ảnh. Thử chụp gần và rõ hơn, hoặc dán chữ / nhập tay.');
+      setError(t('addBill.ocrFailed'));
     }
   };
 
@@ -448,13 +482,13 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
 
   const save = async (e: Event) => {
     e.preventDefault();
-    if (!(amountValue > 0)) return setError('Hãy nhập số tiền.');
-    if (draft.shared && draft.responsible.length === 0) return setError('Hãy chọn ít nhất một người để chia.');
+    if (!(amountValue > 0)) return setError(t('addBill.amountRequired'));
+    if (draft.shared && draft.responsible.length === 0) return setError(t('addBill.pickSomeone'));
     setBusy(true);
     setError('');
     try {
       const res = await api<Money>('POST', `/api/households/${home.id}/bills`, {
-        label: draft.label || CATEGORY[draft.category]?.label,
+        label: draft.label || categoryLabel(draft.category),
         category: draft.category,
         amount: amountValue,
         dueDate: draft.dueDate || undefined,
@@ -471,41 +505,32 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
     }
   };
 
-  const set = <K extends keyof BillDraft>(k: K, v: BillDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
-
   if (step === 'capture') {
     return (
-      <Sheet title="Thêm hóa đơn" onClose={props.onClose}>
+      <Sheet title={t('addBill.title')} onClose={props.onClose}>
         {ocr ? (
           <div class="card" role="status">
-            <strong>{ocr.stage === 'reading' ? 'Đang đọc chữ trong ảnh…' : 'Đang chuẩn bị bộ đọc chữ…'}</strong>
+            <strong>{ocr.stage === 'reading' ? t('addBill.ocrReading') : t('addBill.ocrLoading')}</strong>
             <div class="progress">
               <div style={{ width: `${Math.round(ocr.progress * 100)}%` }} />
             </div>
-            <p class="hint">Ảnh được đọc ngay trên máy bạn, không gửi đi đâu. Lần đầu cần tải bộ đọc chữ (~5 MB).</p>
+            <p class="hint">{t('addBill.ocrNote')}</p>
           </div>
         ) : (
           <>
             <div class="row" style={{ marginBottom: 16 }}>
               <button class="btn secondary" onClick={() => cameraRef.current?.click()}>
-                <Icon.camera /> Chụp ảnh
+                <Icon.camera /> {t('addBill.takePhoto')}
               </button>
               <button class="btn secondary" onClick={() => galleryRef.current?.click()}>
-                <Icon.image /> Chọn ảnh
+                <Icon.image /> {t('addBill.choosePhoto')}
               </button>
             </div>
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => fromPhoto(e.currentTarget.files?.[0])} />
             <input ref={galleryRef} type="file" accept="image/*" hidden onChange={(e) => fromPhoto(e.currentTarget.files?.[0])} />
             <label class="field">
-              <span>Hoặc dán nội dung email / tin nhắn hóa đơn</span>
-              <textarea
-                class="input"
-                name="billText"
-                rows={7}
-                placeholder={'VD: Tổng tiền thanh toán: 850.000 đ\nHạn thanh toán: 15/10/2026\nKỳ thanh toán: từ 01/09 đến 30/09/2026'}
-                value={text}
-                onInput={(e) => setText(e.currentTarget.value)}
-              />
+              <span>{t('addBill.pasteLabel')}</span>
+              <textarea class="input" name="billText" rows={7} placeholder={t('addBill.pastePlaceholder')} value={text} onInput={(e) => setText(e.currentTarget.value)} />
             </label>
             {error && (
               <p class="error-text" role="alert">
@@ -513,18 +538,18 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
               </p>
             )}
             <button class="btn block" disabled={!text.trim()} onClick={() => analyse(text)}>
-              Tách thông tin
+              {t('addBill.extract')}
             </button>
             <button
               class="btn block ghost"
               style={{ marginTop: 8 }}
               onClick={() => {
-                setNotice('');
-                set('label', CATEGORY[draft.category]?.label ?? '');
+                setNotice(undefined);
+                set('label', categoryLabel(draft.category));
                 setStep('review');
               }}
             >
-              Nhập tay
+              {t('addBill.manual')}
             </button>
           </>
         )}
@@ -532,79 +557,66 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
     );
   }
 
+  const categoryLabels = CATEGORIES.map(categoryLabel);
   return (
-    <Sheet title="Kiểm tra hóa đơn" onClose={props.onClose} back={() => setStep('capture')}>
-      {notice && <div class={`banner ${notice.startsWith('Không') ? 'error' : ''}`} style={notice.startsWith('Không') ? undefined : { background: 'var(--brand-soft)', color: 'var(--brand-strong)' }}>{notice}</div>}
+    <Sheet title={t('addBill.reviewTitle')} onClose={props.onClose} back={() => setStep('capture')}>
+      {notice && <div class={`banner ${notice.ok ? 'info' : 'error'}`}>{notice.text}</div>}
       <form onSubmit={save}>
         <div class="row">
           <label class="field">
-            <span>Loại</span>
+            <span>{t('addBill.category')}</span>
             <select
               class="input"
               name="category"
               value={draft.category}
               onChange={(e) => {
                 const category = e.currentTarget.value;
-                setDraft((d) => ({ ...d, category, label: !d.label || Object.values(CATEGORY).some((c) => c.label === d.label) ? (CATEGORY[category]?.label ?? d.label) : d.label }));
+                // Keep a custom name; replace a default one.
+                setDraft((d) => ({ ...d, category, label: !d.label || categoryLabels.includes(d.label) ? categoryLabel(category) : d.label }));
               }}
             >
-              {Object.entries(CATEGORY).map(([k, v]) => (
+              {CATEGORIES.map((k) => (
                 <option value={k} key={k}>
-                  {v.emoji} {v.label}
+                  {CATEGORY_EMOJI[k]} {categoryLabel(k)}
                 </option>
               ))}
             </select>
           </label>
           <label class="field">
-            <span>Số tiền ({home.currency})</span>
+            <span>{t('addBill.amount', { currency: home.currency })}</span>
             <input class="input" name="amount" inputMode="decimal" value={draft.amount} onInput={(e) => set('amount', e.currentTarget.value)} placeholder="0" required />
           </label>
         </div>
         <label class="field">
-          <span>Tên</span>
+          <span>{t('addBill.name')}</span>
           <input class="input" name="label" value={draft.label} onInput={(e) => set('label', e.currentTarget.value)} maxLength={80} />
         </label>
         <label class="field">
-          <span>Hạn trả</span>
+          <span>{t('bills.dueDate')}</span>
           <input class="input" name="dueDate" type="date" value={draft.dueDate} onInput={(e) => set('dueDate', e.currentTarget.value)} />
         </label>
         <div class="row">
           <label class="field">
-            <span>Kỳ từ</span>
+            <span>{t('addBill.periodFrom')}</span>
             <input class="input" name="periodStart" type="date" value={draft.periodStart} onInput={(e) => set('periodStart', e.currentTarget.value)} />
           </label>
           <label class="field">
-            <span>đến</span>
+            <span>{t('addBill.periodTo')}</span>
             <input class="input" name="periodEnd" type="date" value={draft.periodEnd} onInput={(e) => set('periodEnd', e.currentTarget.value)} />
           </label>
         </div>
         <label class="field">
-          <span>Nhà cung cấp (không bắt buộc)</span>
+          <span>{t('addBill.provider')}</span>
           <input class="input" name="provider" value={draft.provider} onInput={(e) => set('provider', e.currentTarget.value)} maxLength={80} />
         </label>
         <Switch
           checked={draft.shared}
           onChange={(v) => set('shared', v)}
-          label="Chi phí chung — chia tiền"
-          hint={draft.shared ? 'Hóa đơn sẽ được chia cho những người được chọn.' : 'Chỉ mình bạn thấy, không chia cho ai.'}
+          label={t('addBill.sharedSwitch')}
+          hint={draft.shared ? t('addBill.sharedHint') : t('addBill.personalHint')}
         />
         {draft.shared && (
-          <fieldset class="card" style={{ border: 0, marginTop: 8 }}>
-            <legend class="sr-only">Chia cho</legend>
-            {residents.map((r) => (
-              <label class="check" key={r.id}>
-                <input
-                  type="checkbox"
-                  checked={draft.responsible.includes(r.id)}
-                  onChange={(e) =>
-                    set('responsible', e.currentTarget.checked ? [...draft.responsible, r.id] : draft.responsible.filter((x) => x !== r.id))
-                  }
-                />
-                <span style={{ flex: 1 }}>{r.id === home.me.id ? `${r.name} (bạn)` : r.name}</span>
-                {shares[r.id] !== undefined && <strong>{money(shares[r.id]!, home.currency)}</strong>}
-              </label>
-            ))}
-          </fieldset>
+          <SplitList residents={residents} me={home.me.id} selected={draft.responsible} onChange={(ids) => set('responsible', ids)} shares={shares} currency={home.currency} />
         )}
         {error && (
           <p class="error-text" role="alert">
@@ -612,7 +624,7 @@ function AddBillSheet(props: { home: Household; residents: Member[]; onClose: ()
           </p>
         )}
         <button class="btn block" type="submit" disabled={busy} style={{ marginTop: 12 }}>
-          {busy ? <Spinner /> : 'Lưu hóa đơn'}
+          {busy ? <Spinner /> : t('addBill.save')}
         </button>
       </form>
     </Sheet>
@@ -634,8 +646,8 @@ function ExpenseSheet(props: { home: Household; residents: Member[]; onClose: ()
 
   const save = async (e: Event) => {
     e.preventDefault();
-    if (!description.trim()) return setError('Hãy nhập mô tả.');
-    if (!(value > 0)) return setError('Hãy nhập số tiền.');
+    if (!description.trim()) return setError(t('expense.descriptionRequired'));
+    if (!(value > 0)) return setError(t('addBill.amountRequired'));
     setBusy(true);
     setError('');
     try {
@@ -656,54 +668,36 @@ function ExpenseSheet(props: { home: Household; residents: Member[]; onClose: ()
   };
 
   return (
-    <Sheet title="Chi tiêu chung" onClose={props.onClose}>
+    <Sheet title={t('expense.title')} onClose={props.onClose}>
       <form onSubmit={save}>
         <label class="field">
-          <span>Mua gì?</span>
-          <input class="input" name="description" placeholder="VD: Đi chợ cuối tuần" value={description} onInput={(e) => setDescription(e.currentTarget.value)} maxLength={120} />
+          <span>{t('expense.what')}</span>
+          <input class="input" name="description" placeholder={t('expense.whatPlaceholder')} value={description} onInput={(e) => setDescription(e.currentTarget.value)} maxLength={120} />
         </label>
         <div class="row">
           <label class="field">
-            <span>Số tiền ({home.currency})</span>
+            <span>{t('expense.amount', { currency: home.currency })}</span>
             <input class="input" name="amount" inputMode="decimal" value={amount} onInput={(e) => setAmount(e.currentTarget.value)} placeholder="0" />
           </label>
           <label class="field">
-            <span>Ngày</span>
+            <span>{t('expense.date')}</span>
             <input class="input" type="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />
           </label>
         </div>
-        <Switch
-          checked={shared}
-          onChange={setShared}
-          label="Chi phí chung — chia tiền"
-          hint={shared ? 'Chỉ chi phí chung mới được chia.' : 'Ghi lại cho riêng bạn, không chia.'}
-        />
+        <Switch checked={shared} onChange={setShared} label={t('expense.sharedSwitch')} hint={shared ? t('expense.sharedHint') : t('expense.personalHint')} />
         {shared && (
           <>
             <label class="field" style={{ marginTop: 8 }}>
-              <span>Ai đã trả?</span>
+              <span>{t('expense.whoPaid')}</span>
               <select class="input" value={paidBy} onChange={(e) => setPaidBy(e.currentTarget.value)}>
                 {residents.map((r) => (
                   <option value={r.id} key={r.id}>
-                    {r.id === home.me.id ? `${r.name} (bạn)` : r.name}
+                    {youSuffix(r, home.me.id)}
                   </option>
                 ))}
               </select>
             </label>
-            <fieldset class="card" style={{ border: 0 }}>
-              <legend class="sr-only">Chia cho</legend>
-              {residents.map((r) => (
-                <label class="check" key={r.id}>
-                  <input
-                    type="checkbox"
-                    checked={participants.includes(r.id)}
-                    onChange={(e) => setParticipants(e.currentTarget.checked ? [...participants, r.id] : participants.filter((x) => x !== r.id))}
-                  />
-                  <span style={{ flex: 1 }}>{r.id === home.me.id ? `${r.name} (bạn)` : r.name}</span>
-                  {shares[r.id] !== undefined && <strong>{money(shares[r.id]!, home.currency)}</strong>}
-                </label>
-              ))}
-            </fieldset>
+            <SplitList residents={residents} me={home.me.id} selected={participants} onChange={setParticipants} shares={shares} currency={home.currency} />
           </>
         )}
         {error && (
@@ -712,7 +706,7 @@ function ExpenseSheet(props: { home: Household; residents: Member[]; onClose: ()
           </p>
         )}
         <button class="btn block" type="submit" disabled={busy} style={{ marginTop: 12 }}>
-          {busy ? <Spinner /> : 'Lưu'}
+          {busy ? <Spinner /> : t('common.save')}
         </button>
       </form>
     </Sheet>

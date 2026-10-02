@@ -12,6 +12,24 @@ Bản web dùng thử để gửi cho bạn bè qua đường dẫn. Thiết k�
 | Hóa đơn: dán chữ hoặc chụp ảnh → tách số tiền, hạn trả, kỳ thanh toán → chia tiền → ai nợ ai | Quên mật khẩu qua email, xoá tài khoản |
 | Dữ liệu mẫu cho nhà mới (xoá được), trạng thái đang tải / trống / lỗi | Cộng đồng, wishlist |
 
+## Ngôn ngữ
+
+- Mọi chữ trên giao diện nằm trong `web/src/i18n/locales/`. `en.ts` là bản gốc và là ngôn ngữ mặc định, `vi.ts` dịch đầy đủ. `fr.ts` và `de.ts` mới để sẵn chỗ.
+- **Thêm hoặc hoàn thiện một ngôn ngữ:** dịch các khoá trong file của ngôn ngữ đó. Khoá nào chưa dịch sẽ hiện tiếng Anh. Khi dịch được khoảng 90%, ngôn ngữ đó tự xuất hiện trong nút chọn, không cần sửa code. Ngôn ngữ hoàn toàn mới thì thêm một dòng trong `locales/index.ts`.
+- Tự nhận ngôn ngữ theo trình duyệt. Nút đổi ngôn ngữ nằm ở màn hình chào, màn hình đăng nhập và trong Cài đặt. Lựa chọn được lưu trên máy.
+- Tiền, ngày, giờ, danh sách và tên tiền tệ đều dùng `Intl` theo ngôn ngữ đang chọn. Số nhiều dùng `Intl.PluralRules`.
+- Tin nhắn hệ thống trong chat ("An đã vào nhà"…) được lưu dạng mã + tham số, nên mỗi người đọc bằng ngôn ngữ của mình. Tin nhắn người dùng gõ không bao giờ bị dịch.
+- Dữ liệu mẫu của nhà mới theo ngôn ngữ người tạo (`server/samples.ts`).
+- `npm test` chạy `scripts/check-i18n.mjs`, sẽ báo lỗi nếu có chữ viết cứng trong giao diện.
+- Phông Inter tự host, gồm bộ Latin, Latin mở rộng (cho tiếng Pháp, Đức) và tiếng Việt.
+
+## Nhân vật
+
+- Bốn nhân vật được khai báo **ở một nơi duy nhất**: `src/characters.ts`. File này chứa id, màu giữ chỗ và phòng mà nhân vật xuất hiện. Tên và mô tả nằm trong file dịch.
+- Ảnh đặt theo quy ước: `web/public/characters/<id>/avatar.(webp|png|jpg|svg)` cho ảnh đại diện, và `<phòng>.(webp|…)` cho cảnh trong phòng, ví dụ `grandpa/library.webp` là ông ngồi đọc sách ở Thư viện. Lúc build, các thư mục này được quét tự động, nên **thả ảnh vào rồi deploy lại là xong, không sửa code**. Chưa có ảnh thì hiện hình tròn màu có chữ cái đầu.
+- Người dùng chọn nhân vật khi đăng ký, đổi được trong Cài đặt. Nhân vật hiện trong chat, danh sách thành viên và mục ai nợ ai.
+- Màn hình trống của mỗi phòng tự hiện cảnh của nhân vật nếu đã có ảnh. Nếu chưa, hiện hình minh họa nét mảnh tự vẽ.
+
 ## Kiến trúc
 
 ```
@@ -62,8 +80,8 @@ npm start            # http://localhost:3000, dữ liệu trong ./data
 
 ## Kiểm tra
 
-- `npm test`: 64 bài test, gồm đăng nhập, phân quyền, tải tệp, chat tức thời, chia tiền, khởi động lại server không mất dữ liệu, và các bản sửa bảo mật.
-- `node scripts/e2e.mjs`: chạy Chromium thật với 2 người trên khung iPhone. Kịch bản: đăng ký → tạo nhà → mời → người thứ hai vào → chat chữ và ảnh tức thời → thư viện (riêng tư, tìm không dấu, nhãn) → dán hóa đơn → chia → trả → sòng phẳng → chi tiêu chung → chụp hóa đơn đọc bằng OCR → trạng thái lỗi khi mất mạng → đăng xuất.
+- `npm test`: kiểm tra chữ viết cứng, kiểu dữ liệu, và 65 bài test, gồm đăng nhập, phân quyền, tải tệp, chat tức thời, chia tiền, khởi động lại server không mất dữ liệu, và các bản sửa bảo mật.
+- `node scripts/e2e.mjs`: chạy Chromium thật với 2 người trên khung iPhone. Kịch bản: tiếng Anh mặc định → đổi sang tiếng Việt, tải lại vẫn giữ → phông có đủ dấu Việt/Pháp/Đức → đăng ký → tạo nhà → mời → người thứ hai vào → chat chữ và ảnh tức thời → thư viện (riêng tư, tìm không dấu, nhãn) → dán hóa đơn → chia → trả → sòng phẳng → chi tiêu chung → chụp hóa đơn đọc bằng OCR → trạng thái lỗi khi mất mạng → đăng xuất.
 
 ## Rà bảo mật (trước khi đưa lên mạng)
 

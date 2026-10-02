@@ -1,57 +1,26 @@
 import type { HomeApp } from '../src/index.js';
+import { samplesFor } from './samples.js';
 
-/** Sample content so a brand-new home isn't empty. Every piece is marked `sample` and can be cleared in one tap. */
-export function seedSamples(app: HomeApp, householdId: string, ownerId: string, now: Date): { welcome: string } {
-  const currency = String(app.platform.graph.requireNode(householdId).props.currency ?? 'VND');
-  const vnd = currency === 'VND';
+/** Sample content so a brand-new home isn't empty. Everything is marked `sample` and can be cleared in one tap. */
+export function seedSamples(app: HomeApp, householdId: string, ownerId: string, now: Date, locale = 'en'): void {
+  const content = samplesFor(locale);
+  const currency = String(app.platform.graph.requireNode(householdId).props.currency ?? 'USD');
+  const wholeUnits = ['VND', 'JPY', 'KRW'].includes(currency);
   const iso = (days: number) => new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 
-  app.items.create(ownerId, householdId, {
-    kind: 'note',
-    title: 'Wi-Fi nhà mình',
-    body: 'Tên mạng: NhaMinh_5G\nMật khẩu: (sửa ghi chú này để điền mật khẩu thật)',
-    tags: ['nhà', 'wifi'],
-    sample: true,
-  });
-  app.items.create(ownerId, householdId, {
-    kind: 'note',
-    title: 'Nội quy chung',
-    body: '• Đổ rác tối thứ Ba và thứ Sáu\n• Ai nấu thì người kia rửa bát\n• Khách ở qua đêm thì báo trước trong chat',
-    tags: ['nhà', 'nội quy'],
-    sample: true,
-  });
-  app.items.create(ownerId, householdId, {
-    kind: 'note',
-    title: 'Số điện thoại cần thiết',
-    body: 'Chủ nhà: 09xx xxx xxx\nThợ sửa ống nước: 09xx xxx xxx\nBảo vệ toà nhà: 09xx xxx xxx',
-    tags: ['liên hệ'],
-    sample: true,
-  });
-  app.items.create(ownerId, householdId, {
-    kind: 'note',
-    title: 'Ghi chú riêng của bạn',
-    body: 'Ghi chú có ổ khoá chỉ mình bạn thấy. Người ở chung không xem được.',
-    tags: ['riêng tư'],
-    private: true,
-    sample: true,
-  });
-
+  for (const note of content.notes) {
+    app.items.create(ownerId, householdId, { kind: 'note', ...note, sample: true });
+  }
   const bill = app.finance.recordBill(ownerId, householdId, {
     category: 'electricity',
-    label: 'Tiền điện',
-    amount: vnd ? 850_000 : 142.5,
-    provider: vnd ? 'EVN' : 'Energy Co',
+    label: content.bill.label,
+    amount: currency === 'VND' ? 850_000 : wholeUnits ? 12_000 : 142.5,
+    provider: currency === 'VND' ? content.bill.provider.VND : content.bill.provider.default,
     dueDate: iso(5),
     periodStart: iso(-35),
     periodEnd: iso(-5),
   });
   app.platform.graph.updateNode(bill.id, { sample: true });
-
-  return {
-    welcome:
-      'Chào mừng về nhà! 👋 Đây là chat chung của cả nhà. Thư viện có vài ghi chú mẫu, và tab Hóa đơn có một hóa đơn mẫu để bạn thử chia tiền. ' +
-      'Vào ⚙️ để mời người ở chung hoặc xoá dữ liệu mẫu.',
-  };
 }
 
 export function clearSamples(app: HomeApp, householdId: string): number {

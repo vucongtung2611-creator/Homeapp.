@@ -18,6 +18,7 @@ import {
   type Role,
   type TransactionProps,
 } from '../src/index.js';
+import { DEFAULT_CHARACTER } from '../src/characters.js';
 import { Auth, AuthError, RateLimiter, newToken, sha256, type User } from './auth.js';
 import { openDb, type Db } from './db.js';
 import { FileStore, MAX_UPLOAD_BYTES, type StoredFile } from './files.js';
@@ -193,7 +194,7 @@ export function createServer(options: ServerOptions) {
   app.post('/api/auth/signup', async (c) => {
     limit(limits.signup, ip(c));
     const data = await body(c);
-    const user = await auth.signup({ email: data.email, password: data.password, name: data.name });
+    const user = await auth.signup({ email: data.email, password: data.password, name: data.name, avatar: data.avatar });
     startSession(c, user);
     return c.json({ user }, 201);
   });
@@ -214,6 +215,14 @@ export function createServer(options: ServerOptions) {
     return c.json({ ok: true });
   });
 
+  app.patch('/api/me', async (c) => {
+    const user = requireUser(c);
+    const data = await body(c);
+    if (data.avatar !== undefined) auth.setAvatar(user.id, data.avatar);
+    for (const h of store.householdsOf(user.id)) hub.publish(h.id, { type: 'changed', area: 'members' });
+    return c.json({ user: auth.getUser(user.id) });
+  });
+
   app.get('/api/me', (c) => {
     const user = c.get('user');
     if (!user) return c.json({ user: null, households: [] });
@@ -231,11 +240,13 @@ export function createServer(options: ServerOptions) {
     const kind = oneOf(data.kind, ['share_house', 'family'] as const, 'kind', 'share_house');
     const home = store.create(user, { name, currency, kind });
     const householdId = home.platform.graph.find((n) => n.type === 'home')[0]!.id;
-    let welcome = '';
+    let welcome: string | undefined;
     if (bool(data.samples, true)) {
-      welcome = store.mutate(householdId, (h) => seedSamples(h, householdId, user.id, new Date())).welcome;
+      const locale = typeof data.locale === 'string' ? data.locale : 'en';
+      store.mutate(householdId, (h) => seedSamples(h, householdId, user.id, new Date(), locale));
+      welcome = 'welcome';
     }
-    if (welcome) insertMessage(householdId, null, welcome);
+    if (welcome) insertSystem(householdId, { key: 'welcome' });
     return c.json({ id: householdId }, 201);
   });
 
@@ -248,7 +259,7 @@ export function createServer(options: ServerOptions) {
       currency: node.props.currency,
       kind: node.props.kind,
       me: { id: user.id, role },
-      members: members(home, householdId),
+      members: members(home, householdId, auth),
       hasSamples: hasSamples(home, householdId),
       canInvite: INVITER_ROLES.includes(role),
     });
@@ -258,7 +269,7 @@ export function createServer(options: ServerOptions) {
     const { householdId, role } = requireMember(c);
     if (role !== 'owner') throw new HttpError(403, 'owner_only');
     const removed = store.mutate(householdId, (h) => clearSamples(h, householdId));
-    db.prepare("DELETE FROM messages WHERE household_id = ? AND user_id IS NULL").run(householdId);
+    db.prepare(`DELETE FROM messages WHERE household_id = ? AND user_id IS NULL AND meta LIKE '%"key":"welcome"%'`).run(householdId);
     hub.publish(householdId, { type: 'changed', area: 'household' });
     return c.json({ removed });
   });
@@ -345,7 +356,7 @@ export function createServer(options: ServerOptions) {
       if (home.platform.acl.members(invite.household_id).length >= 20) throw bad('household_full');
       const kind = home.platform.graph.requireNode(invite.household_id).props.kind;
       store.addMember(invite.household_id, user, kind === 'family' ? 'family_member' : 'tenant');
-      insertMessage(invite.household_id, null, `${user.name} đã vào nhà 🎉`);
+      insertSystem(invite.household_id, { key: 'joined', params: { name: user.name } });
       hub.publish(invite.household_id, { type: 'changed', area: 'members' });
     }
     return c.json({ householdId: invite.household_id });
@@ -417,9 +428,21 @@ export function createServer(options: ServerOptions) {
     file_id: string | null;
     created_at: string;
     seq: number;
+    meta: string | null;
   }
 
-  function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string) {
+  /**
+   * System messages are stored as a key + parameters, never as text, so each
+   * member reads them in their own language. (People's own messages are kept
+   * exactly as typed and never translated.)
+   */
+  interface SystemMessage {
+    key: 'welcome' | 'joined' | 'billAdded' | 'billPaid' | 'settled';
+    params?: Record<string, string | number | undefined>;
+  }
+  const insertSystem = (householdId: string, system: SystemMessage) => insertMessage(householdId, null, '', undefined, system);
+
+  function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string, system?: SystemMessage) {
     const seq =
       ((db.prepare('SELECT MAX(seq) AS s FROM messages WHERE household_id = ?').get(householdId) as { s: number | null }).s ?? 0) + 1;
     const row: MessageRow = {
@@ -430,8 +453,9 @@ export function createServer(options: ServerOptions) {
       file_id: fileId ?? null,
       created_at: new Date().toISOString(),
       seq,
+      meta: system ? JSON.stringify(system) : null,
     };
-    db.prepare('INSERT INTO messages (id, household_id, user_id, text, file_id, created_at, seq) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO messages (id, household_id, user_id, text, file_id, created_at, seq, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
       row.id,
       row.household_id,
       row.user_id,
@@ -439,6 +463,7 @@ export function createServer(options: ServerOptions) {
       row.file_id,
       row.created_at,
       row.seq,
+      row.meta,
     );
     const dto = messageDto(row);
     hub.publish(householdId, { type: 'message', message: dto });
@@ -454,6 +479,7 @@ export function createServer(options: ServerOptions) {
       userId: row.user_id,
       userName: row.user_id ? (home?.platform.graph.getNode(row.user_id)?.label ?? '?') : null,
       text: row.text,
+      system: row.meta ? (JSON.parse(row.meta) as SystemMessage) : null,
       file: file ? fileDto(file) : null,
       createdAt: row.created_at,
     };
@@ -673,7 +699,7 @@ export function createServer(options: ServerOptions) {
       }));
     return {
       currency: String(home.platform.graph.requireNode(householdId).props.currency),
-      members: members(home, householdId),
+      members: members(home, householdId, auth),
       bills,
       expenses,
       balances: f.balances(userId, householdId),
@@ -722,8 +748,10 @@ export function createServer(options: ServerOptions) {
     const bill = store.mutate(householdId, (h) => h.finance.recordBill(user.id, householdId, input));
     moneyChanged(householdId);
     if (bill.props.shared) {
-      const fmt = fmtMoney(bill.props.amount, bill.props.currency);
-      insertMessage(householdId, null, `${user.name} đã thêm hóa đơn "${bill.label}" ${fmt}${bill.props.dueDate ? `, hạn ${viDate(bill.props.dueDate)}` : ''}.`);
+      insertSystem(householdId, {
+        key: 'billAdded',
+        params: { name: user.name, label: bill.label, amount: bill.props.amount, currency: bill.props.currency, date: bill.props.dueDate },
+      });
     }
     return c.json(moneyView(store.get(householdId)!, user.id, householdId), 201);
   });
@@ -740,7 +768,10 @@ export function createServer(options: ServerOptions) {
     moneyChanged(householdId);
     if (bill.props.shared) {
       const payer = payerId === user.id ? user.name : (home.platform.graph.getNode(payerId)?.label ?? '?');
-      insertMessage(householdId, null, `${user.name} ghi nhận: ${payer} đã trả hóa đơn "${bill.label}" ${fmtMoney(bill.props.amount, bill.props.currency)}.`);
+      insertSystem(householdId, {
+        key: 'billPaid',
+        params: { actor: user.name, payer, label: bill.label, amount: bill.props.amount, currency: bill.props.currency },
+      });
     }
     return c.json(moneyView(home, user.id, householdId));
   });
@@ -789,7 +820,7 @@ export function createServer(options: ServerOptions) {
     moneyChanged(householdId);
     const nameOf = (id: string) => home.platform.graph.getNode(id)?.label ?? '?';
     const currency = String(home.platform.graph.requireNode(householdId).props.currency);
-    insertMessage(householdId, null, `${user.name} ghi nhận: ${nameOf(from!)} đã chuyển ${fmtMoney(value, currency)} cho ${nameOf(to!)}.`);
+    insertSystem(householdId, { key: 'settled', params: { actor: user.name, from: nameOf(from!), to: nameOf(to!), amount: value, currency } });
     return c.json(moneyView(home, user.id, householdId), 201);
   });
 
@@ -835,20 +866,19 @@ export function createServer(options: ServerOptions) {
   return { app, db, store, hub };
 }
 
-function members(home: HomeApp, householdId: string) {
-  return home.platform.acl.members(householdId).map((m) => ({
+function members(home: HomeApp, householdId: string, auth: Auth) {
+  const list = home.platform.acl.members(householdId);
+  const avatars = auth.avatars(list.map((m) => m.userId));
+  return list.map((m) => ({
     id: m.userId,
     name: home.platform.graph.getNode<PersonProps>(m.userId)?.label ?? '?',
     role: m.role,
+    avatar: avatars[m.userId] ?? DEFAULT_CHARACTER,
   }));
 }
 
 function fileDto(file: StoredFile) {
   return { id: file.id, name: file.name, mime: file.mime, size: file.size, url: `/api/files/${file.id}` };
-}
-
-function fmtMoney(amount: number, currency: string): string {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency }).format(amount);
 }
 
 function sameHost(origin: string, host: string): boolean {
@@ -859,10 +889,6 @@ function sameHost(origin: string, host: string): boolean {
   }
 }
 
-function viDate(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}/${m}/${y}`;
-}
 
 async function readLimited(req: Request, max: number): Promise<ArrayBuffer> {
   if (!req.body) return new ArrayBuffer(0);

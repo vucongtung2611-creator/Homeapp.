@@ -1,8 +1,11 @@
 import { useState } from 'preact/hooks';
 import { api, type Household } from '../api.js';
+import { CharacterAvatar, CharacterPicker } from '../characters.js';
+import { formatDate, t } from '../i18n/index.js';
+import { LanguageSwitch } from '../language.js';
 import { navigate, type Session } from '../router.js';
-import { Avatar, Spinner, toast, toastError } from '../ui.js';
-import { ROLE, viDate } from '../util.js';
+import { Spinner, toast, toastError } from '../ui.js';
+import { roleLabel } from '../util.js';
 
 export function SettingsScreen({ home, session, reloadHome }: { home: Household; session: Session; reloadHome: () => void }) {
   const [invite, setInvite] = useState<{ url: string; expiresAt: string }>();
@@ -21,14 +24,20 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
     }
   };
 
-  const makeInvite = () => run('invite', async () => setInvite(await api('POST', `/api/households/${home.id}/invite`)));
-
+  const copy = async () => {
+    if (!invite) return;
+    try {
+      await navigator.clipboard.writeText(invite.url);
+      toast(t('settings.copied'));
+    } catch {
+      toast(t('settings.copyFallback'));
+    }
+  };
   const share = async () => {
     if (!invite) return;
-    const text = `Vào nhà “${home.name}” với mình nhé: ${invite.url}`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: home.name, text, url: invite.url });
+        await navigator.share({ title: home.name, text: t('settings.shareText', { home: home.name, url: invite.url }), url: invite.url });
         return;
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
@@ -36,75 +45,69 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
     }
     await copy();
   };
-  const copy = async () => {
-    if (!invite) return;
-    try {
-      await navigator.clipboard.writeText(invite.url);
-      toast('Đã sao chép link');
-    } catch {
-      toast('Hãy nhấn giữ link để sao chép');
-    }
-  };
 
   return (
     <div class="page">
-      <h2 class="section-title">Mời người ở chung</h2>
+      <h2 class="section-title">{t('settings.invite')}</h2>
       <section class="card">
         {!home.canInvite ? (
           <p class="muted" style={{ margin: 0 }}>
-            Chỉ thành viên trong nhà mới mời được người khác.
+            {t('settings.inviteNotAllowed')}
           </p>
         ) : invite ? (
           <>
-            <p style={{ margin: 0 }}>Gửi link này cho người ở chung qua Zalo, Messenger…</p>
+            <p style={{ margin: 0 }}>{t('settings.inviteShare')}</p>
             <div class="link-box" data-testid="invite-link">
               {invite.url}
             </div>
             <div class="row">
               <button class="btn" onClick={share}>
-                Chia sẻ
+                {t('settings.share')}
               </button>
               <button class="btn secondary" onClick={copy}>
-                Sao chép
+                {t('settings.copy')}
               </button>
             </div>
             <p class="hint">
-              Hết hạn {viDate(invite.expiresAt)}. Tạo link mới thì link cũ hết hiệu lực.{' '}
+              {t('settings.inviteExpires', { date: formatDate(invite.expiresAt, 'medium') })}{' '}
               <button
                 class="btn ghost small"
-                style={{ padding: 0, minHeight: 0 }}
+                style={{ padding: 0, minHeight: 0, textDecoration: 'underline' }}
                 onClick={() =>
                   run('revoke', async () => {
                     await api('DELETE', `/api/households/${home.id}/invite`);
                     setInvite(undefined);
-                    toast('Đã huỷ link mời');
+                    toast(t('settings.revoked'));
                   })
                 }
               >
-                Huỷ link
+                {t('settings.revoke')}
               </button>
             </p>
           </>
         ) : (
           <>
-            <p style={{ marginTop: 0 }}>Ai có link sẽ vào được nhà sau khi tạo tài khoản. Link dùng được 7 ngày.</p>
-            <button class="btn block" onClick={makeInvite} disabled={busy === 'invite'}>
-              {busy === 'invite' ? <Spinner /> : 'Tạo link mời'}
+            <p style={{ marginTop: 0 }}>{t('settings.inviteIntro')}</p>
+            <button
+              class="btn block"
+              onClick={() => run('invite', async () => setInvite(await api('POST', `/api/households/${home.id}/invite`)))}
+              disabled={busy === 'invite'}
+            >
+              {busy === 'invite' ? <Spinner /> : t('settings.createInvite')}
             </button>
           </>
         )}
       </section>
 
-      <h2 class="section-title">Thành viên ({home.members.length})</h2>
+      <h2 class="section-title">{t('settings.members', { count: home.members.length })}</h2>
       <section class="card">
         {home.members.map((m) => (
           <div class="member" key={m.id}>
-            <Avatar id={m.id} name={m.name} />
-            <span style={{ flex: 1 }}>
-              {m.name}
-              {m.id === me.id && ' (bạn)'}
-              <span class="muted" style={{ display: 'block', fontSize: 15 }}>
-                {ROLE[m.role] ?? m.role}
+            <CharacterAvatar id={m.avatar} size={40} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              {m.id === me.id ? t('common.youSuffix', { name: m.name }) : m.name}
+              <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+                {roleLabel(m.role)}
               </span>
             </span>
             {isOwner && m.id !== me.id && (
@@ -112,25 +115,47 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
                 class="btn small danger"
                 disabled={busy === m.id}
                 onClick={() => {
-                  if (!confirm(`Mời ${m.name} rời khỏi nhà? Họ sẽ không xem được chat, thư viện và hóa đơn nữa.`)) return;
+                  if (!confirm(t('settings.removeConfirm', { name: m.name }))) return;
                   void run(m.id, async () => {
                     await api('DELETE', `/api/households/${home.id}/members/${m.id}`);
                     reloadHome();
                   });
                 }}
               >
-                Mời ra
+                {t('settings.remove')}
               </button>
             )}
           </div>
         ))}
       </section>
 
+      <h2 class="section-title">{t('settings.character')}</h2>
+      <section class="card">
+        <CharacterPicker
+          value={session.user?.avatar ?? ''}
+          label={t('settings.character')}
+          hideLabel
+          onChange={(avatar) =>
+            run('avatar', async () => {
+              await api('PATCH', '/api/me', { avatar });
+              await session.refresh();
+              reloadHome();
+              toast(t('settings.characterSaved'));
+            })
+          }
+        />
+      </section>
+
+      <h2 class="section-title">{t('language.label')}</h2>
+      <section class="card">
+        <LanguageSwitch block />
+      </section>
+
       {isOwner && home.hasSamples && (
         <>
-          <h2 class="section-title">Dữ liệu mẫu</h2>
+          <h2 class="section-title">{t('settings.samples')}</h2>
           <section class="card">
-            <p style={{ marginTop: 0 }}>Xoá các ghi chú, hóa đơn và tin nhắn mẫu khi bạn đã quen.</p>
+            <p style={{ marginTop: 0 }}>{t('settings.samplesText')}</p>
             <button
               class="btn block secondary"
               disabled={busy === 'samples'}
@@ -138,17 +163,17 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
                 run('samples', async () => {
                   await api('DELETE', `/api/households/${home.id}/samples`);
                   reloadHome();
-                  toast('Đã xoá dữ liệu mẫu');
+                  toast(t('settings.samplesCleared'));
                 })
               }
             >
-              Xoá dữ liệu mẫu
+              {t('settings.clearSamples')}
             </button>
           </section>
         </>
       )}
 
-      <h2 class="section-title">Nhà của bạn</h2>
+      <h2 class="section-title">{t('settings.homes')}</h2>
       <section class="card">
         {session.households.map((h) => (
           <button
@@ -159,19 +184,19 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
           >
             <span class="emoji">🏠</span>
             <span style={{ flex: 1 }}>{h.name}</span>
-            {h.id === home.id && <span class="badge ok">Đang xem</span>}
+            {h.id === home.id && <span class="badge ok">{t('settings.current')}</span>}
           </button>
         ))}
         <button class="btn block secondary" style={{ marginTop: 12 }} onClick={() => navigate('/new')}>
-          Tạo nhà mới
+          {t('settings.newHome')}
         </button>
       </section>
 
-      <h2 class="section-title">Tài khoản</h2>
+      <h2 class="section-title">{t('settings.account')}</h2>
       <section class="card">
         <p style={{ marginTop: 0 }}>
           {session.user?.name}
-          <span class="muted" style={{ display: 'block', fontSize: 15 }}>
+          <span class="muted" style={{ display: 'block', fontSize: 14 }}>
             {session.user?.email}
           </span>
         </p>
@@ -185,14 +210,14 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
             })
           }
         >
-          Đăng xuất
+          {t('settings.logout')}
         </button>
         {!isOwner && (
           <button
             class="btn block ghost"
             style={{ color: 'var(--danger)', marginTop: 8 }}
             onClick={() => {
-              if (!confirm(`Rời khỏi “${home.name}”?`)) return;
+              if (!confirm(t('settings.leaveConfirm', { home: home.name }))) return;
               void run('leave', async () => {
                 await api('DELETE', `/api/households/${home.id}/members/${me.id}`);
                 await session.refresh();
@@ -200,12 +225,12 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
               });
             }}
           >
-            Rời khỏi nhà này
+            {t('settings.leave')}
           </button>
         )}
       </section>
       <p class="hint" style={{ textAlign: 'center', marginTop: 24 }}>
-        Bản dùng thử · Góp ý cứ nhắn trong chat nhé 💚
+        {t('settings.footer')}
       </p>
     </div>
   );

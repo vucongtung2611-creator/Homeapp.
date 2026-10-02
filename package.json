@@ -1,7 +1,7 @@
 {
   "name": "homeapp",
   "version": "0.1.0",
-  "description": "AI Household Butler — a Connected Living Platform built on a Household Graph",
+  "description": "AI Household Butler \u2014 a Connected Living Platform built on a Household Graph",
   "private": true,
   "type": "module",
   "main": "dist/src/index.js",
@@ -10,16 +10,18 @@
     "build:server": "tsc -p .",
     "build:web": "node scripts/build-web.mjs",
     "typecheck": "tsc -p . --noEmit && tsc -p web --noEmit",
-    "test": "tsc -p . && node --test \"dist/test/**/*.test.js\"",
+    "test": "node scripts/check-i18n.mjs && tsc -p . && tsc -p web --noEmit && node --test \"dist/test/**/*.test.js\"",
     "start": "node --disable-warning=ExperimentalWarning dist/server/main.js",
     "dev": "npm run build && PORT=3000 npm start",
-    "demo": "tsc -p . && node dist/src/demo.js"
+    "demo": "tsc -p . && node dist/src/demo.js",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "engines": {
     "node": ">=22.13"
   },
   "license": "UNLICENSED",
   "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/vie": "^1.0.0",
     "@types/node": "^22.20.5",

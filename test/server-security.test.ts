@@ -79,7 +79,10 @@ test('settling up and paying bills is announced in the chat', async () => {
   const bill = (await linh.post(`/api/households/${hid}/bills`, { amount: 200, label: 'Internet', category: 'internet' })).data.bills[0];
   await linh.post(`/api/households/${hid}/bills/${bill.id}/pay`);
   await an.post(`/api/households/${hid}/settlements`, { from: users[1]!.id, to: users[0]!.id, amount: 100 });
-  const texts = (await linh.get(`/api/households/${hid}/messages`)).data.messages.map((m: { text: string }) => m.text);
-  assert.ok(texts.some((t: string) => /Linh đã trả hóa đơn "Internet"/.test(t)), texts.join('\n'));
-  assert.ok(texts.some((t: string) => /An đã chuyển .* cho Linh/.test(t)), texts.join('\n'));
+  const system = (await linh.get(`/api/households/${hid}/messages`)).data.messages.map((m: { system: unknown }) => m.system).filter(Boolean);
+  assert.deepEqual(system.slice(-3), [
+    { key: 'billAdded', params: { name: 'Linh', label: 'Internet', amount: 200, currency: 'VND' } },
+    { key: 'billPaid', params: { actor: 'Linh', payer: 'Linh', label: 'Internet', amount: 200, currency: 'VND' } },
+    { key: 'settled', params: { actor: 'An', from: 'An', to: 'Linh', amount: 100, currency: 'VND' } },
+  ]);
 });

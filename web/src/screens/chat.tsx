@@ -3,8 +3,20 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { api, upload, type Household, type Message } from '../api.js';
 import { preparePhoto } from '../image.js';
 import type { Live } from '../router.js';
+import { CharacterAvatar } from '../characters.js';
+import { dayLabel, formatDate, formatMoney, formatTime, t, type MessageKey } from '../i18n/index.js';
+import { RoomArt } from '../illustrations.js';
 import { EmptyState, ErrorState, Icon, Lightbox, Skeleton, Spinner, toastError } from '../ui.js';
-import { dayLabel, errorText, timeOf } from '../util.js';
+import { errorText } from '../util.js';
+
+/** System messages arrive as a key + params and are rendered in the reader's language. */
+function systemText(system: NonNullable<Message['system']>): string {
+  const p = system.params ?? {};
+  const amount = typeof p.amount === 'number' && typeof p.currency === 'string' ? formatMoney(p.amount, p.currency) : undefined;
+  const date = typeof p.date === 'string' ? formatDate(p.date) : undefined;
+  const key = system.key === 'billAdded' && date ? 'billAddedDue' : system.key;
+  return t(`system.${key}` as MessageKey, { ...p, amount, date } as Record<string, string | number | undefined>);
+}
 
 /** A message as shown: confirmed by the server, or still on its way. */
 interface Shown extends Message {
@@ -28,6 +40,13 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const stick = useRef(true);
+  /** Messages that arrived while the screen is open get a small pop-in. */
+  const fresh = useRef(new Set<string>());
+  const avatarOf = (userId: string | null) => home.members.find((m) => m.id === userId)?.avatar;
+  const lastOfGroup = (i: number) => {
+    const next = messages[i + 1];
+    return !next || next.userId !== messages[i]!.userId || dayLabel(next.createdAt) !== dayLabel(messages[i]!.createdAt);
+  };
   const lastSeq = useRef(0);
 
   const merge = (incoming: Message[]) =>
@@ -62,6 +81,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
       live.on(async (e) => {
         if (e.type === 'message') {
           stick.current = isNearBottom(listRef.current);
+          if ((e.message as Message).userId !== me) fresh.current.add((e.message as Message).id);
           merge([e.message as Message]);
         } else if (e.type === 'message_deleted') {
           setMessages((cur) => cur.filter((m) => m.id !== e.id));
@@ -119,6 +139,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
       seq: Number.MAX_SAFE_INTEGER,
       userId: me,
       userName: '',
+      system: null,
       text: body,
       file: null,
       createdAt: new Date().toISOString(),
@@ -141,6 +162,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
       }
     };
     stick.current = true;
+    fresh.current.add(localId);
     setMessages((cur) => [...cur, optimistic]);
     void attempt();
     inputRef.current?.focus();
@@ -151,7 +173,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
       setMessages((cur) => cur.filter((x) => x.id !== m.id));
       return;
     }
-    if (!confirm('Xoá tin nhắn này?')) return;
+    if (!confirm(t('chat.deleteConfirm'))) return;
     try {
       await api('DELETE', `/api/households/${home.id}/messages/${m.id}`);
       setMessages((cur) => cur.filter((x) => x.id !== m.id));
@@ -179,11 +201,11 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
         )}
         {state === 'error' && <ErrorState error={loadError} onRetry={load} />}
         {state === 'ready' && messages.length === 0 && (
-          <EmptyState art="💬" title="Chưa có tin nhắn" text="Gửi lời chào đầu tiên cho cả nhà, hoặc gửi một tấm ảnh." />
+          <EmptyState art={<RoomArt room="chat" fallback="chat" />} title={t('chat.emptyTitle')} text={t('chat.emptyText')} />
         )}
         {state === 'ready' && hasMore && (
           <button class="btn ghost small" style={{ alignSelf: 'center' }} onClick={loadOlder} disabled={loadingOlder}>
-            {loadingOlder ? <Spinner /> : 'Xem tin cũ hơn'}
+            {loadingOlder ? <Spinner /> : t('chat.older')}
           </button>
         )}
         {state === 'ready' &&
@@ -197,34 +219,37 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
               <Fragment key={m.id}>
                 {newDay && <div class="day">{dayLabel(m.createdAt)}</div>}
                 {m.userId === null ? (
-                  <div class="system">{m.text}</div>
+                  <div class="system">{m.system ? systemText(m.system) : m.text}</div>
                 ) : (
-                  <div class={`msg ${mine ? 'mine' : ''} ${cont ? 'cont' : ''} ${m.failed ? 'failed' : ''}`}>
-                    {!mine && !cont && <span class="who">{m.userName}</span>}
-                    <div
-                      class={`bubble ${src ? 'photo' : ''}`}
-                      onContextMenu={(e) => {
-                        if (mine) {
-                          e.preventDefault();
-                          void remove(m);
-                        }
-                      }}
-                    >
-                      {src && <img src={src} alt="Ảnh" loading="lazy" onClick={() => setLightbox(src)} />}
-                      {m.text && (src ? <div class="caption">{m.text}</div> : m.text)}
+                  <div class={`msg ${mine ? 'mine' : ''} ${cont ? 'cont' : ''} ${m.failed ? 'failed' : ''} ${fresh.current.has(m.id) ? 'fresh' : ''}`}>
+                    {!mine && <span class="avatar-slot">{!lastOfGroup(i) ? null : <CharacterAvatar id={avatarOf(m.userId)} size={30} title={m.userName ?? ''} />}</span>}
+                    <div class="col">
+                      {!mine && !cont && <span class="who">{m.userName}</span>}
+                      <div
+                        class={`bubble ${src ? 'photo' : ''}`}
+                        onContextMenu={(e) => {
+                          if (mine) {
+                            e.preventDefault();
+                            void remove(m);
+                          }
+                        }}
+                      >
+                        {src && <img src={src} alt={t('chat.photoAlt')} loading="lazy" onClick={() => setLightbox(src)} />}
+                        {m.text && (src ? <div class="caption">{m.text}</div> : m.text)}
+                      </div>
+                      {m.failed ? (
+                        <span>
+                          <button class="retry" onClick={() => m.retry?.()}>
+                            {t('chat.failed')}
+                          </button>
+                          <button class="retry" style={{ color: 'var(--muted)' }} onClick={() => remove(m)}>
+                            {t('chat.discard')}
+                          </button>
+                        </span>
+                      ) : lastOfGroup(i) || m.pending ? (
+                        <span class="time">{m.pending ? t('chat.sending') : formatTime(m.createdAt)}</span>
+                      ) : null}
                     </div>
-                    {m.failed ? (
-                      <span>
-                        <button class="retry" onClick={() => m.retry?.()}>
-                          Gửi lỗi · Thử lại
-                        </button>
-                        <button class="retry" style={{ color: 'var(--muted)' }} onClick={() => remove(m)}>
-                          Bỏ
-                        </button>
-                      </span>
-                    ) : (
-                      <span class="time">{m.pending ? 'Đang gửi…' : timeOf(m.createdAt)}</span>
-                    )}
                   </div>
                 )}
               </Fragment>
@@ -234,11 +259,11 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
 
       {photo && (
         <div class="preview-strip">
-          <img src={photo.url} alt="Ảnh sắp gửi" />
+          <img src={photo.url} alt={t('chat.photoPreview')} />
           <span class="muted" style={{ flex: 1 }}>
-            Ảnh sẽ được thu nhỏ và xoá thông tin vị trí trước khi gửi.
+            {t('chat.photoNote')}
           </span>
-          <button class="icon-btn" aria-label="Bỏ ảnh" onClick={() => setPhoto(undefined)}>
+          <button class="icon-btn" aria-label={t('chat.removePhoto')} onClick={() => setPhoto(undefined)}>
             <Icon.close />
           </button>
         </div>
@@ -251,14 +276,15 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
         }}
       >
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickPhoto} />
-        <button type="button" class="icon-btn" aria-label="Gửi ảnh" onClick={() => fileRef.current?.click()}>
+        <div class="composer-box">
+        <button type="button" class="icon-btn" aria-label={t('chat.sendPhoto')} onClick={() => fileRef.current?.click()}>
           <Icon.image />
         </button>
         <textarea
           ref={inputRef}
           rows={1}
-          placeholder="Nhắn cho cả nhà…"
-          aria-label="Tin nhắn"
+          placeholder={t('chat.placeholder')}
+          aria-label={t('chat.inputLabel')}
           value={text}
           maxLength={4000}
           onInput={(e) => {
@@ -275,9 +301,10 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
             }
           }}
         />
-        <button type="submit" class="send" aria-label="Gửi" disabled={!text.trim() && !photo}>
+        <button type="submit" class="send" aria-label={t('chat.send')} disabled={!text.trim() && !photo}>
           <Icon.send />
         </button>
+        </div>
       </form>
       {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(undefined)} />}
     </div>

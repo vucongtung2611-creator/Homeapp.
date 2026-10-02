@@ -6,7 +6,9 @@ import { BillsScreen } from './screens/bills.js';
 import { ChatScreen } from './screens/chat.js';
 import { LibraryScreen } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
+import { onLocaleChange, t, tPick } from './i18n/index.js';
 import { ErrorState, Icon, Skeleton, Spinner, Toasts, useLoad } from './ui.js';
+import { partOfDay } from './util.js';
 
 import { bindRouter, navigate, type Listener, type Live, type Session } from './router.js';
 
@@ -141,34 +143,36 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
         <ErrorState error={home.error} onRetry={() => home.reload()} />
         <div style={{ textAlign: 'center' }}>
           <a href="/" onClick={(e) => (e.preventDefault(), navigate('/'))}>
-            Về trang đầu
+            {t('common.goHome')}
           </a>
         </div>
       </div>
     );
   }
   const h = home.data;
-  const titles: Record<Tab, string> = { chat: 'Chat', library: 'Thư viện', bills: 'Hóa đơn', settings: 'Cài đặt' };
+  const titles: Record<Tab, string> = { chat: t('tabs.chat'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings') };
+  const firstName = session.user?.name.split(/\s+/)[0] ?? '';
+  const subtitle = tab === 'chat' && h ? tPick(`greeting.${partOfDay()}`, greetingSeed, { name: firstName }) : (h?.name ?? ' ');
 
   return (
     <div class="app">
       <header class="topbar">
         {tab === 'settings' ? (
-          <button class="icon-btn" aria-label="Quay lại" onClick={() => (history.length > 1 ? history.back() : navigate(`/h/${householdId}/chat`))}>
+          <button class="icon-btn" aria-label={t('common.back')} onClick={() => (history.length > 1 ? history.back() : navigate(`/h/${householdId}/chat`))}>
             <Icon.back />
           </button>
         ) : null}
         <h1>
           {titles[tab]}
-          <span class="sub">{h ? h.name : ' '}</span>
+          <span class="sub">{subtitle}</span>
         </h1>
         {tab !== 'settings' && (
-          <button class="icon-btn" aria-label="Cài đặt nhà" onClick={() => navigate(`/h/${householdId}/settings`)}>
+          <button class="icon-btn" aria-label={t('tabs.settingsAria')} onClick={() => navigate(`/h/${householdId}/settings`)}>
             <Icon.gear />
           </button>
         )}
       </header>
-      {!live.connected && <div class="banner" style={{ margin: '0 20px 10px' }}>Đang kết nối lại… tin mới sẽ đến khi có mạng.</div>}
+      {!live.connected && <div class="banner" style={{ margin: '0 20px 10px' }}>{t('live.reconnecting')}</div>}
       {!h ? (
         <div class="page">
           <Skeleton />
@@ -182,10 +186,10 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       ) : (
         <SettingsScreen home={h} session={session} reloadHome={() => home.reload(true)} />
       )}
-      <nav class="tabbar" aria-label="Các mục chính">
-        <TabLink to={`/h/${householdId}/chat`} active={tab === 'chat'} label="Chat" icon={<Icon.chat />} dot={unread} />
-        <TabLink to={`/h/${householdId}/library`} active={tab === 'library'} label="Thư viện" icon={<Icon.library />} />
-        <TabLink to={`/h/${householdId}/bills`} active={tab === 'bills'} label="Hóa đơn" icon={<Icon.bill />} />
+      <nav class="tabbar" aria-label={t('tabs.nav')}>
+        <TabLink to={`/h/${householdId}/chat`} active={tab === 'chat'} label={t('tabs.chat')} icon={<Icon.chat />} dot={unread} />
+        <TabLink to={`/h/${householdId}/library`} active={tab === 'library'} label={t('tabs.library')} icon={<Icon.library />} />
+        <TabLink to={`/h/${householdId}/bills`} active={tab === 'bills'} label={t('tabs.bills')} icon={<Icon.bill />} />
       </nav>
     </div>
   );
@@ -204,12 +208,16 @@ function TabLink(props: { to: string; active: boolean; label: string; icon: prea
     >
       {props.icon}
       {props.label}
-      {props.dot && <span class="dot" aria-label="Có tin mới" />}
+      {props.dot && <span class="dot" aria-label={t('tabs.newMessages')} />}
     </a>
   );
 }
 
+const greetingSeed = Math.floor(Math.random() * 1000);
+
 function Root() {
+  const [, setTick] = useState(0);
+  useEffect(() => onLocaleChange(() => setTick((n) => n + 1)), []);
   return (
     <>
       <App />

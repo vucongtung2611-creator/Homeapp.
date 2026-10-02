@@ -1,8 +1,9 @@
 // Bundles the web app into dist/public and copies the self-hosted OCR engine.
 import { build } from 'esbuild';
-import { copyFileSync, cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,6 +12,29 @@ const dev = process.argv.includes('--dev');
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'assets'), { recursive: true });
+
+// Character artwork: web/public/characters/<id>/avatar.* and <room>.* are
+// discovered here, so dropping a file in needs no code change.
+const ART_EXT = ['.webp', '.png', '.jpg', '.jpeg', '.svg'];
+const characterArt = {};
+const charactersDir = join(root, 'web/public/characters');
+if (existsSync(charactersDir)) {
+  for (const id of readdirSync(charactersDir)) {
+    const dir = join(charactersDir, id);
+    if (!statSync(dir).isDirectory()) continue;
+    const entry = { scenes: {} };
+    for (const file of readdirSync(dir)) {
+      const ext = extname(file).toLowerCase();
+      if (!ART_EXT.includes(ext)) continue;
+      const hash = createHash('sha1').update(readFileSync(join(dir, file))).digest('hex').slice(0, 8);
+      const url = `/characters/${id}/${file}?v=${hash}`;
+      const stem = basename(file, extname(file));
+      if (stem === 'avatar') entry.avatar = url;
+      else entry.scenes[stem] = url;
+    }
+    characterArt[id] = entry;
+  }
+}
 
 const result = await build({
   entryPoints: [join(root, 'web/src/main.tsx'), join(root, 'web/styles.css')],
@@ -25,7 +49,12 @@ const result = await build({
   jsxImportSource: 'preact',
   metafile: true,
   logLevel: 'warning',
-  define: { 'process.env.NODE_ENV': dev ? '"development"' : '"production"' },
+  define: {
+    'process.env.NODE_ENV': dev ? '"development"' : '"production"',
+    __CHARACTER_ART__: JSON.stringify(characterArt),
+  },
+  // Fonts are copied as-is to /fonts below and referenced by absolute URL.
+  external: ['/fonts/*'],
 });
 
 const outputs = Object.keys(result.metafile.outputs).map((p) => basename(p));
@@ -36,6 +65,16 @@ writeFileSync(
   readFileSync(join(root, 'web/index.html'), 'utf8').replace('__JS__', js).replace('__CSS__', css),
 );
 copyFileSync(join(root, 'web/manifest.webmanifest'), join(out, 'manifest.webmanifest'));
+// Static files (character artwork…), without the READMEs that explain them.
+cpSync(join(root, 'web/public'), out, { recursive: true, filter: (src) => !src.endsWith('README.md') });
+// Inter, self-hosted: Latin, Latin Extended (French, German) and Vietnamese.
+mkdirSync(join(out, 'fonts'), { recursive: true });
+for (const subset of ['latin', 'latin-ext', 'vietnamese']) {
+  copyFileSync(
+    join(root, `node_modules/@fontsource-variable/inter/files/inter-${subset}-wght-normal.woff2`),
+    join(out, 'fonts', `inter-${subset}.woff2`),
+  );
+}
 
 // OCR: tesseract.js + LSTM-only cores + compact Vietnamese/English models, all same-origin.
 const ocr = join(out, 'ocr');
@@ -121,4 +160,4 @@ writeFileSync(join(out, 'icon-512.png'), icon(512));
 writeFileSync(join(out, 'icon-maskable-512.png'), icon(512, { maskable: true }));
 writeFileSync(join(out, 'apple-touch-icon.png'), icon(180, { maskable: true }));
 
-console.log(`web: ${js}, ${css}`);
+console.log(`web: ${js}, ${css}; character art: ${JSON.stringify(characterArt)}`);

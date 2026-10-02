@@ -34,11 +34,40 @@ const waitCount = (page, n, msg) =>
 const shot = (page, name) => page.screenshot({ path: join(SHOTS, `${name}.png`), animations: 'disabled' });
 
 try {
+  // ── 0. Language: English by default, visible switch, remembered ──────
+  {
+    const context = await browser.newContext({ ...phone, locale: 'en-US' });
+    const page = await context.newPage();
+    page.on('pageerror', (e) => problems.push(`[en pageerror] ${e.message}`));
+    await page.goto(BASE);
+    await page.getByRole('heading', { name: 'A home for everyone at home' }).waitFor();
+    await expect((await page.locator('html').getAttribute('lang')) === 'en', 'html lang=en');
+    const offered = await page.locator('.lang-switch option').allTextContents();
+    await expect(offered.join('|') === 'English|Tiếng Việt', `only finished languages offered (got ${offered})`);
+    await shot(page, '00-welcome-en');
+    const fonts = await page.evaluate(async () => {
+      await document.fonts.ready;
+      const probe = 'Tiếng Việt ạ ữ đ · Français é è ç œ · Deutsch ä ö ü ß';
+      await document.fonts.load('16px Inter', probe);
+      return { ok: document.fonts.check('16px Inter', probe), family: getComputedStyle(document.body).fontFamily };
+    });
+    await expect(fonts.ok && fonts.family.startsWith('Inter'), `Inter covers vi/fr/de glyphs (${JSON.stringify(fonts)})`);
+    await page.locator('.lang-switch select').selectOption('vi');
+    await page.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
+    await page.reload();
+    await page.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
+    await expect((await page.locator('html').getAttribute('lang')) === 'vi', 'html lang=vi after reload');
+    await page.locator('.lang-switch select').selectOption('en');
+    await page.getByRole('heading', { name: 'A home for everyone at home' }).waitFor();
+    await context.close();
+    step('English by default; switching to Vietnamese works and is remembered; Inter has vi/fr/de glyphs');
+  }
+
   // ── 1. Linh signs up and creates a home ──────────────────────────────
   const linh = await person('linh');
   let p = linh.page;
   await p.goto(BASE);
-  await p.getByRole('heading', { name: 'Nhà mình' }).waitFor();
+  await p.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
   await shot(p, '01-welcome');
   step('welcome screen');
 
@@ -162,7 +191,7 @@ try {
     'EVNHCMC - THÔNG BÁO TIỀN ĐIỆN\nKỳ thanh toán: từ 01/09/2026 đến 30/09/2026\nĐiện năng tiêu thụ: 312 kWh\nTổng tiền thanh toán: 1.234.567 đ\nHạn thanh toán: 15/10/2026',
   );
   await p.getByRole('button', { name: 'Tách thông tin' }).click();
-  await p.getByText(/Đã tìm thấy số tiền, hạn trả, kỳ thanh toán/).waitFor();
+  await p.getByText(/Đã tìm thấy số tiền, hạn trả và kỳ thanh toán/).waitFor();
   await expect((await p.getByLabel(/Số tiền/).inputValue()) === '1.234.567', 'amount parsed');
   await expect((await p.getByLabel('Hạn trả').inputValue()) === '2026-10-15', 'due date parsed');
   await expect((await p.getByLabel('Kỳ từ').inputValue()) === '2026-09-01', 'period start parsed');
@@ -235,7 +264,7 @@ try {
 
   await q.getByRole('button', { name: 'Cài đặt nhà' }).click();
   await q.getByRole('button', { name: 'Đăng xuất' }).click();
-  await q.getByRole('heading', { name: 'Nhà mình' }).waitFor();
+  await q.getByRole('heading', { name: 'Một chỗ chung cho cả nhà' }).waitFor();
   step('sign out');
 
   // Tesseract logs harmless 'Parameter not found' warnings through console.error.

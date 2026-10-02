@@ -67,12 +67,14 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  avatar: string;
 }
 
 export interface Member {
   id: string;
   name: string;
   role: string;
+  avatar: string;
 }
 
 export interface Household {
@@ -92,6 +94,8 @@ export interface Message {
   userId: string | null;
   userName: string | null;
   text: string;
+  /** Language-neutral system message, rendered with t('system.<key>'). */
+  system: { key: string; params?: Record<string, string | number> } | null;
   file: UploadedFile | null;
   createdAt: string;
 }
