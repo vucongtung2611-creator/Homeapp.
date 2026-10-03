@@ -10,7 +10,7 @@ import type { Live } from '../router.js';
 import { EmptyState, ErrorState, Icon, Sheet, Skeleton, Spinner, Switch, toast, toastError, useLoad } from '../ui.js';
 import { CATEGORIES, CATEGORY_EMOJI, categoryLabel, dueText, errorText, todayIso } from '../util.js';
 
-const RESIDENT = ['owner', 'tenant', 'family_member', 'child'];
+const RESIDENT = ['owner', 'manager', 'tenant', 'family_member', 'child'];
 
 export function BillsScreen({ home, live }: { home: Household; live: Live }) {
   const data = useLoad(() => api<Money>('GET', `/api/households/${home.id}/money`), [home.id]);

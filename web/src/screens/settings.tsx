@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, type Household, type InviteLink, type Invites } from '../api.js';
+import { api, type Household, type InviteLink, type Invites, type Member } from '../api.js';
 import { CharacterAvatar, CharacterPicker } from '../characters.js';
 import { formatDate, t } from '../i18n/index.js';
 import { LanguageSwitch } from '../language.js';
@@ -43,34 +43,7 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
       </section>
 
       <h2 class="section-title">{t('settings.members', { count: home.members.length })}</h2>
-      <section class="card">
-        {home.members.map((m) => (
-          <div class="member" key={m.id}>
-            <CharacterAvatar id={m.avatar} size={40} mood={m.id === me.id ? 'idle' : 'still'} />
-            <span style={{ flex: 1, minWidth: 0 }}>
-              {m.id === me.id ? t('common.youSuffix', { name: m.name }) : m.name}
-              <span class="muted" style={{ display: 'block', fontSize: 14 }}>
-                {roleLabel(m.role)}
-              </span>
-            </span>
-            {isOwner && m.id !== me.id && (
-              <button
-                class="btn small danger"
-                disabled={busy === m.id}
-                onClick={() => {
-                  if (!confirm(t('settings.removeConfirm', { name: m.name }))) return;
-                  void run(m.id, async () => {
-                    await api('DELETE', `/api/households/${home.id}/members/${m.id}`);
-                    reloadHome();
-                  });
-                }}
-              >
-                {t('settings.remove')}
-              </button>
-            )}
-          </div>
-        ))}
-      </section>
+      <Members home={home} reloadHome={reloadHome} />
 
       <h2 class="section-title">{t('settings.character')}</h2>
       <section class="card">
@@ -178,7 +151,7 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
             </button>
           </>
         )}
-        {!isOwner && (
+        {(!isOwner || home.members.filter((m) => m.role === 'owner').length > 1) && (
           <button
             class="btn block ghost"
             style={{ color: 'var(--danger)', marginTop: 8 }}
@@ -207,6 +180,7 @@ function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => v
   const data = useLoad(() => api<Invites>('GET', `/api/households/${home.id}/invites`), [home.id]);
   const [label, setLabel] = useState('');
   const [role, setRole] = useState('');
+  const [days, setDays] = useState(7);
   const [fresh, setFresh] = useState<InviteLink>();
   const [busy, setBusy] = useState<string>();
   const run = async (key: string, fn: () => Promise<void>) => {
@@ -253,7 +227,11 @@ function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => v
         onSubmit={(e) => {
           e.preventDefault();
           void run('create', async () => {
-            const link = await api<InviteLink>('POST', `/api/households/${home.id}/invites`, { label: label.trim() || undefined, role: role || undefined });
+            const link = await api<InviteLink>('POST', `/api/households/${home.id}/invites`, {
+              label: label.trim() || undefined,
+              role: role || undefined,
+              guestDays: role === 'guest' ? days : undefined,
+            });
             setFresh(link);
             setLabel('');
             data.reload(true);
@@ -274,6 +252,15 @@ function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => v
             {roles.map((r) => (
               <option key={r} value={r}>
                 {roleLabel(r)}
+              </option>
+            ))}
+          </select>
+        )}
+        {role === 'guest' && (
+          <select class="input" aria-label={t('settings.guestStay')} value={days} onChange={(e) => setDays(Number(e.currentTarget.value))}>
+            {home.guestDays.map((d) => (
+              <option key={d} value={d}>
+                {t('settings.stayFor', { count: d })}
               </option>
             ))}
           </select>
@@ -426,3 +413,144 @@ function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => v
   );
 }
 
+
+/** Who lives here: roles (owner sets them), guests' stay, removing, handing the home over. */
+function Members({ home, reloadHome }: { home: Household; reloadHome: () => void }) {
+  const me = home.me;
+  const isOwner = me.role === 'owner';
+  const owners = home.members.filter((m) => m.role === 'owner').length;
+  const [busy, setBusy] = useState<string>();
+  const [heir, setHeir] = useState('');
+  const run = async (key: string, fn: () => Promise<void>) => {
+    setBusy(key);
+    try {
+      await fn();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  const canRemove = (m: Member) =>
+    m.id !== me.id && (isOwner ? !(m.role === 'owner' && owners === 1) : me.role === 'manager' && !['owner', 'manager'].includes(m.role));
+  const setRole = (m: Member, role: string, guestDays?: number) => {
+    if (m.role === 'owner' && role !== 'owner' && owners === 1) return toast(t('errors.last_owner'));
+    void run(m.id, async () => {
+      await api('PATCH', `/api/households/${home.id}/members/${m.id}`, { role, guestDays });
+      reloadHome();
+      toast(t('settings.roleChanged', { name: m.name, role: roleLabel(role) }));
+    });
+  };
+  const candidates = home.members.filter((m) => m.id !== me.id && m.role !== 'guest');
+
+  return (
+    <>
+      <section class="card" data-testid="members">
+        {home.members.map((m) => (
+          <div class="request" key={m.id}>
+            <CharacterAvatar id={m.avatar} size={40} mood={m.id === me.id ? 'idle' : 'still'} />
+            <span class="who">
+              {m.id === me.id ? t('common.youSuffix', { name: m.name }) : m.name}
+              {(!isOwner || (m.role === 'guest' && m.expiresAt)) && (
+                <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+                  {m.role === 'guest' && m.expiresAt ? t('settings.guestUntil', { date: formatDate(m.expiresAt, 'short') }) : roleLabel(m.role)}
+                </span>
+              )}
+              {isOwner && (
+                <span class="row" style={{ marginTop: 6, gap: 6 }}>
+                  <select
+                    class="input small"
+                    aria-label={t('settings.roleOf', { name: m.name })}
+                    value={m.role}
+                    disabled={busy === m.id}
+                    onChange={(e) => setRole(m, e.currentTarget.value, e.currentTarget.value === 'guest' ? 7 : undefined)}
+                  >
+                    {home.roles.map((r) => (
+                      <option key={r} value={r}>
+                        {roleLabel(r)}
+                      </option>
+                    ))}
+                  </select>
+                  {m.role === 'guest' && (
+                    <select
+                      class="input small"
+                      aria-label={t('settings.guestStay')}
+                      value=""
+                      onChange={(e) => e.currentTarget.value && setRole(m, 'guest', Number(e.currentTarget.value))}
+                    >
+                      <option value="">{t('settings.extendStay')}</option>
+                      {home.guestDays.map((d) => (
+                        <option key={d} value={d}>
+                          {t('settings.days', { count: d })}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </span>
+              )}
+            </span>
+            {canRemove(m) && (
+              <span class="actions">
+                <button
+                  class="btn small danger"
+                  disabled={busy === m.id}
+                  onClick={() => {
+                    if (!confirm(t('settings.removeConfirm', { name: m.name }))) return;
+                    void run(m.id, async () => {
+                      await api('DELETE', `/api/households/${home.id}/members/${m.id}`);
+                      reloadHome();
+                    });
+                  }}
+                >
+                  {t('settings.remove')}
+                </button>
+              </span>
+            )}
+          </div>
+        ))}
+      </section>
+
+      {me.role === 'guest' && me.expiresAt && <p class="hint">{t('settings.guestNote', { date: formatDate(me.expiresAt, 'medium') })}</p>}
+
+      {isOwner && (
+        <>
+          <h2 class="section-title">{t('settings.ownerTools')}</h2>
+          <section class="card stack">
+            <button class="btn block secondary" onClick={() => navigate(`/h/${home.id}/log`)}>
+              {t('log.open')}
+            </button>
+            {candidates.length > 0 && (
+              <>
+                <p class="muted">{t('settings.transferText')}</p>
+                <select class="input" aria-label={t('settings.transferTo')} value={heir} onChange={(e) => setHeir(e.currentTarget.value)}>
+                  <option value="">{t('settings.transferTo')}</option>
+                  {candidates.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  class="btn block secondary"
+                  disabled={!heir || busy === 'transfer'}
+                  onClick={() => {
+                    const to = home.members.find((m) => m.id === heir);
+                    if (!to || !confirm(t('settings.transferConfirm', { name: to.name, home: home.name }))) return;
+                    void run('transfer', async () => {
+                      await api('POST', `/api/households/${home.id}/transfer`, { to: to.id });
+                      setHeir('');
+                      reloadHome();
+                      toast(t('settings.transferred', { name: to.name }));
+                    });
+                  }}
+                >
+                  {t('settings.transfer')}
+                </button>
+              </>
+            )}
+          </section>
+        </>
+      )}
+    </>
+  );
+}

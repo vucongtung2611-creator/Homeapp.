@@ -6,7 +6,7 @@ import { BillsScreen } from './screens/bills.js';
 import { ChatScreen } from './screens/chat.js';
 import { LibraryScreen } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
-import { InboxScreen } from './screens/inbox.js';
+import { InboxScreen, LogScreen } from './screens/inbox.js';
 import { CharacterAvatar } from './characters.js';
 import { onLocaleChange, t, tPick } from './i18n/index.js';
 import { ErrorState, Icon, Skeleton, Spinner, Toasts, toast, useLoad } from './ui.js';
@@ -107,7 +107,7 @@ function Redirect({ to }: { to: string }) {
 }
 
 // ── Household shell with bottom tabs ─────────────────────────────────
-export type Tab = 'chat' | 'library' | 'bills' | 'settings' | 'inbox';
+export type Tab = 'chat' | 'library' | 'bills' | 'settings' | 'inbox' | 'log';
 
 
 /**
@@ -253,14 +253,14 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
     );
   }
   const h = home.data;
-  const titles: Record<Tab, string> = { chat: t('tabs.chat'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings'), inbox: t('inbox.title') };
+  const titles: Record<Tab, string> = { chat: t('tabs.chat'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings'), inbox: t('inbox.title'), log: t('log.title') };
   const firstName = session.user?.name.split(/\s+/)[0] ?? '';
   const subtitle = tab === 'chat' && h ? tPick(`greeting.${partOfDay()}`, greetingSeed, { name: firstName }) : (h?.name ?? ' ');
 
   return (
     <div class="app">
       <header class="topbar">
-        {tab === 'settings' || tab === 'inbox' ? (
+        {tab === 'settings' || tab === 'inbox' || tab === 'log' ? (
           <button class="icon-btn" aria-label={t('common.back')} onClick={() => (history.length > 1 ? history.back() : navigate(`/h/${householdId}/chat`))}>
             <Icon.back />
           </button>
@@ -309,7 +309,15 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       ) : tab === 'library' ? (
         <LibraryScreen home={h} live={live} />
       ) : tab === 'bills' ? (
-        <BillsScreen home={h} live={live} />
+        h.me.role === 'guest' ? (
+          <div class="page">
+            <p class="muted">{t('settings.guestNoMoney')}</p>
+          </div>
+        ) : (
+          <BillsScreen home={h} live={live} />
+        )
+      ) : tab === 'log' ? (
+        <LogScreen home={h} />
       ) : tab === 'inbox' ? (
         <InboxScreen home={h} live={live} reloadHome={() => home.reload(true)} />
       ) : (
@@ -318,7 +326,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       <nav class="tabbar" aria-label={t('tabs.nav')}>
         <TabLink to={`/h/${householdId}/chat`} active={tab === 'chat'} label={t('tabs.chat')} icon={<Icon.chat />} dot={unread} />
         <TabLink to={`/h/${householdId}/library`} active={tab === 'library'} label={t('tabs.library')} icon={<Icon.library />} />
-        <TabLink to={`/h/${householdId}/bills`} active={tab === 'bills'} label={t('tabs.bills')} icon={<Icon.bill />} />
+        {h?.me.role !== 'guest' && <TabLink to={`/h/${householdId}/bills`} active={tab === 'bills'} label={t('tabs.bills')} icon={<Icon.bill />} />}
       </nav>
     </div>
   );

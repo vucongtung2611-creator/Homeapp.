@@ -100,8 +100,8 @@ export class HouseholdStore {
     });
   }
 
-  async addMember(householdId: string, user: User, role: Role): Promise<void> {
-    await this.mutate(householdId, (app) => app.platform.addMember(householdId, user.id, user.name, role));
+  async addMember(householdId: string, user: User, role: Role, expiresAt?: string): Promise<void> {
+    await this.mutate(householdId, (app) => app.platform.addMember(householdId, user.id, user.name, role, { expiresAt }));
     await this.db.run(
       'INSERT INTO memberships (user_id, household_id, role, joined_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',
       user.id,
@@ -109,6 +109,11 @@ export class HouseholdStore {
       role,
       new Date().toISOString(),
     );
+  }
+
+  async setRole(householdId: string, userId: string, role: Role, expiresAt?: string): Promise<void> {
+    await this.mutate(householdId, (app) => app.platform.setRole(householdId, userId, role, { expiresAt }));
+    await this.db.run('UPDATE memberships SET role = ? WHERE user_id = ? AND household_id = ?', role, userId, householdId);
   }
 
   async removeMember(householdId: string, userId: string): Promise<void> {

@@ -155,6 +155,44 @@ try {
   await q.getByText('Bạn đã vào “Nhà 12 Lê Lợi”!').waitFor();
   step('Linh saw the request in the inbox (count on the icon), let An in; An was told and went straight in');
 
+  // ── 3b. Roles and the home log ──────────────────────────────────────
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await p.getByLabel('Vai trò của An').selectOption('manager');
+  await p.getByText('An giờ là Quản lý').waitFor();
+  await p.getByRole('button', { name: 'Mở nhật ký nhà' }).click();
+  await p.getByTestId('home-log').getByText('Linh (bạn) đã đặt An làm Quản lý').waitFor();
+  await p.getByTestId('home-log').getByText('Linh (bạn) đã tạo thư mời cho An (Ở chung)').waitFor();
+  await shot(p, '05d-log');
+  await p.getByRole('button', { name: 'Quay lại' }).click();
+  step('Linh made An a manager; the home log shows invites, approvals and role changes');
+
+  // ── 3c. A guest for 3 days: chat and look, no money, nothing to add ──
+  await p.getByLabel('Mời ai? (ví dụ Linh)').fill('Bà Hoa');
+  await p.getByLabel('Vai trò', { exact: true }).selectOption('guest');
+  await p.getByLabel('Ở trong bao lâu').selectOption('3');
+  await p.getByRole('button', { name: 'Tạo link mời' }).click();
+  const guestUrl = (await p.getByTestId('invite-link').textContent()).trim();
+  const hoa = await person('hoa');
+  await hoa.page.goto(guestUrl);
+  await hoa.page.getByLabel('Tên bạn').fill('Hoa');
+  await hoa.page.getByLabel('Email').fill(`hoa-${run}@example.com`);
+  await hoa.page.getByLabel('Mật khẩu').fill('mat khau cua hoa');
+  await hoa.page.getByRole('button', { name: 'Tiếp tục' }).click();
+  await hoa.page.getByText('Đã xin vào “Nhà 12 Lê Lợi”').waitFor();
+  await p.getByTestId('inbox-button').click();
+  await p.getByTestId('join-requests').getByRole('button', { name: 'Đồng ý' }).click();
+  await hoa.page.getByText('Hoa đã vào nhà 🎉').waitFor({ timeout: 15000 });
+  await expect((await hoa.page.getByRole('link', { name: 'Hóa đơn' }).count()) === 0, 'no Bills tab for a guest');
+  await hoa.page.getByRole('link', { name: 'Thư viện' }).click();
+  await hoa.page.getByPlaceholder('Tìm ghi chú, giấy tờ, ảnh…').waitFor();
+  await expect((await hoa.page.getByRole('button', { name: 'Thêm' }).count()) === 0, 'no Add button for a guest');
+  await hoa.page.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await hoa.page.getByText('Bạn là khách trong nhà này đến').waitFor();
+  await shot(hoa.page, '05e-guest');
+  await hoa.context.close();
+  await p.getByRole('link', { name: 'Chat' }).click();
+  step('a 3-day guest got in after approval: chat and library only, no Bills, nothing to add');
+
   // ── 4. Realtime chat ─────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Chat' }).click();
   await p.getByText('An đã vào nhà 🎉').waitFor({ timeout: 5000 });

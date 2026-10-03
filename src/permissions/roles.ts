@@ -2,6 +2,8 @@ import { ALL_DOMAINS, type Domain } from '../graph/types.js';
 
 export type Role =
   | 'owner'
+  /** Runs the home with the owner: lets people in, invites, removes residents; can't delete the home. */
+  | 'manager'
   | 'family_member'
   | 'child'
   | 'tenant'
@@ -32,6 +34,7 @@ const all = (access: Access): Partial<Record<Domain, Access>> =>
  */
 export const DEFAULT_POLICIES: Record<Role, RolePolicy> = {
   owner: { domains: all('write') },
+  manager: { domains: all('write') },
   family_member: { domains: all('write') },
   child: {
     domains: {
@@ -60,7 +63,8 @@ export const DEFAULT_POLICIES: Record<Role, RolePolicy> = {
       library: 'write',
     },
   },
-  guest: { domains: { core: 'read', calendar: 'read', communication: 'write' } },
+  // Guests look and chat: the shared library is read-only, money stays with residents.
+  guest: { domains: { core: 'read', calendar: 'read', communication: 'write', library: 'read' } },
   property_manager: { domains: { core: 'read', maintenance: 'write' } },
   cleaner: { domains: { core: 'read', maintenance: 'read' }, assignedOnly: ['maintenance'] },
   contractor: { domains: { core: 'read', maintenance: 'write' }, assignedOnly: ['maintenance'] },

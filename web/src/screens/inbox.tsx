@@ -8,6 +8,8 @@ import { Illustration } from '../illustrations.js';
 import { roleLabel } from '../util.js';
 
 export interface InboxEvent {
+  from?: string | null;
+  days?: number | null;
   id: string;
   kind: string;
   actorName: string | null;
@@ -24,6 +26,7 @@ export interface InboxEvent {
 const EVENT_KINDS = [
   'invite_created', 'invite_revoked', 'code_created', 'code_revoked', 'approval_on', 'approval_off',
   'join_requested', 'request_declined', 'request_cancelled', 'member_joined', 'member_approved', 'member_left', 'member_removed',
+  'role_changed', 'owner_transferred', 'guest_expired',
 ] as const;
 
 /** One line of the inbox, in the reader's language. */
@@ -34,6 +37,7 @@ export function eventText(e: InboxEvent): string {
   const kind = e.kind === 'member_joined' && e.actorName ? 'member_approved' : e.kind;
   if (!(EVENT_KINDS as readonly string[]).includes(kind)) return kind;
   const params = { actor, subject, label: e.label || t('settings.someone'), role: e.role ? roleLabel(e.role) : '' };
+  if (kind === 'role_changed' && e.role === 'guest' && e.days) return t('inbox.event.role_guest', { ...params, count: e.days });
   if (kind === 'join_requested') return t(e.via === 'code' ? 'inbox.event.join_requested_code' : 'inbox.event.join_requested_link', params);
   return t(`inbox.event.${kind}` as MessageKey, params);
 }
@@ -120,15 +124,17 @@ function SentInvites({ home }: { home: Household }) {
 
 /** People who used the short code and wait for the owner to let them in. */
 export function RequestsCard({ home, reloadHome }: { home: Household; reloadHome: () => void }) {
-  type Request = { id: string; name: string; email: string; avatar: string | null; role: string; via: 'code' | 'link'; inviteLabel: string; createdAt: string };
-  const list = useLoad(() => api<{ requests: Request[]; roles: string[] }>('GET', `/api/households/${home.id}/requests`), [home.id, home.pendingRequests]);
+  type Request = { id: string; name: string; email: string; avatar: string | null; role: string; via: 'code' | 'link'; inviteLabel: string; guestDays: number | null; createdAt: string };
+  const list = useLoad(() => api<{ requests: Request[]; roles: string[]; guestDays: number[] }>('GET', `/api/households/${home.id}/requests`), [home.id, home.pendingRequests]);
   const [busy, setBusy] = useState<string>();
   const [roles, setRoles] = useState<Record<string, string>>({});
+  const [stays, setStays] = useState<Record<string, number>>({});
   const decide = async (r: Request, decision: 'approve' | 'decline') => {
     if (decision === 'decline' && !confirm(t('requests.declineConfirm', { name: r.name }))) return;
     setBusy(r.id);
     try {
-      await api('POST', `/api/households/${home.id}/requests/${r.id}/${decision}`, decision === 'approve' ? { role: roles[r.id] ?? r.role } : {});
+      const role = roles[r.id] ?? r.role;
+      await api('POST', `/api/households/${home.id}/requests/${r.id}/${decision}`, decision === 'approve' ? { role, guestDays: role === 'guest' ? (stays[r.id] ?? r.guestDays ?? 7) : undefined } : {});
       toast(decision === 'approve' ? t('requests.approved', { name: r.name }) : t('requests.declined', { name: r.name }));
       reloadHome();
     } catch (err) {
@@ -167,6 +173,21 @@ export function RequestsCard({ home, reloadHome }: { home: Household; reloadHome
                   ))}
                 </select>
               )}
+              {(roles[r.id] ?? r.role) === 'guest' && (
+                <select
+                  class="input"
+                  style={{ marginTop: 6 }}
+                  aria-label={t('settings.guestStay')}
+                  value={stays[r.id] ?? r.guestDays ?? 7}
+                  onChange={(e) => setStays({ ...stays, [r.id]: Number(e.currentTarget.value) })}
+                >
+                  {list.data!.guestDays.map((d) => (
+                    <option key={d} value={d}>
+                      {t('settings.stayFor', { count: d })}
+                    </option>
+                  ))}
+                </select>
+              )}
             </span>
             <span class="actions">
               <button class="btn small" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>
@@ -181,5 +202,29 @@ export function RequestsCard({ home, reloadHome }: { home: Household; reloadHome
         {list.loading && !list.data && <Spinner />}
       </section>
     </>
+  );
+}
+
+/** The owner's home log: everything, newest first (who came, who invited whom, roles, removals). */
+export function LogScreen({ home }: { home: Household }) {
+  const data = useLoad(() => api<{ events: InboxEvent[] }>('GET', `/api/households/${home.id}/log`), [home.id]);
+  return (
+    <div class="page">
+      <p class="muted">{t('log.intro')}</p>
+      {data.error ? (
+        <ErrorState error={data.error} onRetry={() => data.reload()} />
+      ) : !data.data ? (
+        <Skeleton rows={4} />
+      ) : (
+        <section class="card" data-testid="home-log">
+          {data.data.events.map((e) => (
+            <div class="event" key={e.id}>
+              <span class="who">{eventText(e)}</span>
+              <span class="muted when">{formatDate(e.createdAt, 'short')}</span>
+            </div>
+          ))}
+        </section>
+      )}
+    </div>
   );
 }

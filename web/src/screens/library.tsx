@@ -131,9 +131,11 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
         </ul>
       )}
 
+      {home.me.role !== 'guest' && (
       <button class="fab" onClick={() => setChoosing(true)}>
         <Icon.plus /> {t('common.add')}
       </button>
+      )}
 
       {choosing && (
         <Sheet title={t('library.addTitle')} onClose={() => setChoosing(false)}>

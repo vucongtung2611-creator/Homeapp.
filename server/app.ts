@@ -66,9 +66,10 @@ export interface ServerOptions {
 const SESSION_COOKIE = 'sid';
 const INVITE_DAYS = 7;
 const CODE_DAYS = 30;
-const RESIDENT_ROLES: Role[] = ['owner', 'family_member', 'tenant', 'child'];
-/** Who can invite people and let them in. */
-const MANAGER_ROLES: Role[] = ['owner'];
+const RESIDENT_ROLES: Role[] = ['owner', 'manager', 'family_member', 'tenant', 'child'];
+/** Who can invite people, let them in and remove residents. */
+const MANAGER_ROLES: Role[] = ['owner', 'manager'];
+const GUEST_DAYS = [1, 3, 7, 14, 30, 90];
 
 type Env = { Variables: { user?: User } };
 
@@ -196,9 +197,26 @@ export async function createServer(options: ServerOptions) {
     const householdId = c.req.param('hid') ?? '';
     const home = await store.get(householdId);
     const role = home?.platform.acl.roleOf(user.id, householdId);
-    if (!home || !role) throw new HttpError(404, 'not_found');
+    if (!home || !role || (await guestExpired(home, householdId, user.id))) throw new HttpError(404, 'not_found');
     touch(householdId, user.id); // any request to the home counts as activity
     return { user, householdId, home, role };
+  };
+  /** A guest whose time is up is taken out of the home the next time anything looks. */
+  const guestExpired = async (home: HomeApp, householdId: string, userId: string) => {
+    const m = home.platform.membership(householdId, userId);
+    if (m?.role !== 'guest' || !m.expiresAt || m.expiresAt > new Date().toISOString()) return false;
+    await store.removeMember(householdId, userId);
+    hub.kick(householdId, userId);
+    hub.publish(householdId, { type: 'changed', area: 'members' });
+    await logEvent(householdId, 'guest_expired', 'members', { subject: { id: userId, name: home.platform.graph.getNode(userId)?.label ?? '' } });
+    return true;
+  };
+  const guestUntil = (days: number | null | undefined) => (days ? new Date(Date.now() + days * 86_400_000).toISOString() : undefined);
+  const guestDays = (v: unknown) => {
+    if (v === undefined || v === null || v === '') return undefined;
+    const n = Number(v);
+    if (!GUEST_DAYS.includes(n)) throw bad('guestDays_invalid');
+    return n;
   };
   const requireOwner = async (c: Context<Env>) => {
     const m = await requireMember(c);
@@ -209,6 +227,7 @@ export async function createServer(options: ServerOptions) {
   // 'members' events (joins, leaving, roles) are seen by everyone in the
   // home; 'managers' events (requests, invites) only by those who manage it.
   type EventAudience = 'members' | 'managers';
+  let lastEventAt = 0;
   const logEvent = async (
     householdId: string,
     kind: string,
@@ -216,9 +235,11 @@ export async function createServer(options: ServerOptions) {
     who: { actor?: User | { id: string; name: string } | null; subject?: { id: string; name: string } | null; data?: Record<string, unknown> } = {},
   ) => {
     const data = { ...who.data, actorName: who.actor?.name ?? null, subjectName: who.subject?.name ?? null };
+    // Strictly increasing times keep the order exact even within one millisecond.
+    lastEventAt = Math.max(Date.now(), lastEventAt + 1);
     await db.run(
       'INSERT INTO household_events (id, household_id, kind, audience, actor_id, subject_id, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      `ev_${randomUUID()}`, householdId, kind, audience, who.actor?.id ?? null, who.subject?.id ?? null, JSON.stringify(data), new Date().toISOString(),
+      `ev_${randomUUID()}`, householdId, kind, audience, who.actor?.id ?? null, who.subject?.id ?? null, JSON.stringify(data), new Date(lastEventAt).toISOString(),
     );
     hub.publish(householdId, { type: 'changed', area: 'inbox' });
   };
@@ -277,7 +298,13 @@ export async function createServer(options: ServerOptions) {
     const user = c.get('user');
     const config = { chatIdleMinutes: chatIdleMs / 60_000 };
     if (!user) return c.json({ user: null, households: [], requests: [], config });
-    return c.json({ user, households: await store.householdsOf(user.id), requests: await myRequests(user.id), config });
+    const households = [];
+    for (const h of await store.householdsOf(user.id)) {
+      const home = h.role === 'guest' ? await store.get(h.id) : undefined;
+      if (home && (await guestExpired(home, h.id, user.id))) continue;
+      households.push(h);
+    }
+    return c.json({ user, households, requests: await myRequests(user.id), config });
   });
 
   // ── Households ───────────────────────────────────────────────────────
@@ -306,7 +333,9 @@ export async function createServer(options: ServerOptions) {
       name: node.label,
       currency: node.props.currency,
       kind: node.props.kind,
-      me: { id: user.id, role },
+      me: { id: user.id, role, expiresAt: home.platform.membership(householdId, user.id)?.expiresAt ?? null },
+      roles: role === 'owner' ? memberRoles(home, householdId) : [],
+      guestDays: GUEST_DAYS,
       members: await members(home, householdId, auth),
       hasSamples: hasSamples(home, householdId),
       canInvite: MANAGER_ROLES.includes(role),
@@ -362,12 +391,16 @@ export async function createServer(options: ServerOptions) {
   });
 
   app.delete('/api/households/:hid/members/:uid', async (c) => {
-    const { user, householdId, role } = await requireMember(c);
+    const { user, householdId, role, home } = await requireMember(c);
     const target = c.req.param('uid');
     const targetRole = await store.roleOf(householdId, target);
     if (!targetRole) throw new HttpError(404, 'not_found');
-    if (target === user.id && role === 'owner') throw bad('owner_cannot_leave');
-    if (target !== user.id && role !== 'owner') throw new HttpError(403, 'owner_only');
+    // The last owner can't leave: they hand the home over first (or delete an empty one).
+    if (targetRole === 'owner' && owners(home, householdId).length === 1) throw bad(target === user.id ? 'owner_cannot_leave' : 'last_owner');
+    // Owners remove anyone; managers remove residents and guests, not other managers or owners.
+    if (target !== user.id && !(role === 'owner' || (role === 'manager' && !MANAGER_ROLES.includes(targetRole)))) {
+      throw new HttpError(403, 'owner_only');
+    }
     const subject = { id: target, name: (await auth.getUser(target))?.name ?? '' };
     await store.removeMember(householdId, target);
     hub.kick(householdId, target);
@@ -375,6 +408,50 @@ export async function createServer(options: ServerOptions) {
     if (target === user.id) await logEvent(householdId, 'member_left', 'members', { subject });
     else await logEvent(householdId, 'member_removed', 'members', { actor: user, subject });
     return c.json({ ok: true });
+  });
+
+  // ── Roles ────────────────────────────────────────────────────────────
+  const owners = (home: HomeApp, householdId: string) => home.platform.acl.members(householdId).filter((m) => m.role === 'owner');
+  /** Every role an owner can give someone already in the home. */
+  const memberRoles = (home: HomeApp, householdId: string): Role[] => ['owner', ...joinRoles(home, householdId, 'owner')];
+
+  app.patch('/api/households/:hid/members/:uid', async (c) => {
+    const { user, householdId, home } = await requireOwner(c);
+    const target = c.req.param('uid');
+    const from = home.platform.acl.roleOf(target, householdId);
+    if (!from) throw new HttpError(404, 'not_found');
+    const data = await body(c);
+    const to = data.role === undefined ? from : (data.role as Role);
+    if (!memberRoles(home, householdId).includes(to)) throw bad('role_invalid');
+    // A home always keeps at least one owner.
+    if (from === 'owner' && to !== 'owner' && owners(home, householdId).length === 1) throw bad('last_owner');
+    const days = to === 'guest' ? (guestDays(data.guestDays) ?? 7) : undefined;
+    await store.setRole(householdId, target, to, guestUntil(days));
+    hub.publish(householdId, { type: 'changed', area: 'members' });
+    const subject = { id: target, name: home.platform.graph.getNode(target)?.label ?? '' };
+    if (from !== to || days) await logEvent(householdId, 'role_changed', 'members', { actor: user, subject, data: { from, role: to, days: days ?? null } });
+    return c.json({ ok: true });
+  });
+
+  /** Hand the home over: the other person becomes owner, you become a manager. */
+  app.post('/api/households/:hid/transfer', async (c) => {
+    const { user, householdId, home } = await requireOwner(c);
+    const to = String((await body(c)).to ?? '');
+    const role = home.platform.acl.roleOf(to, householdId);
+    if (!role || to === user.id) throw bad('to_invalid');
+    if (role === 'guest') throw bad('guest_cannot_own');
+    await store.setRole(householdId, to, 'owner');
+    await store.setRole(householdId, user.id, 'manager');
+    hub.publish(householdId, { type: 'changed', area: 'members' });
+    await logEvent(householdId, 'owner_transferred', 'members', { actor: user, subject: { id: to, name: home.platform.graph.getNode(to)?.label ?? '' } });
+    return c.json({ ok: true });
+  });
+
+  /** The owner's home log: everything that happened, newest first. */
+  app.get('/api/households/:hid/log', async (c) => {
+    const { user, householdId } = await requireOwner(c);
+    const rows = await db.all<EventRow>('SELECT * FROM household_events WHERE household_id = ? ORDER BY created_at DESC LIMIT 500', householdId);
+    return c.json({ events: rows.map((r) => eventDto(r, user.id, '\uffff')) });
   });
 
   // ── Invites and join requests ────────────────────────────────────────
@@ -387,15 +464,20 @@ export async function createServer(options: ServerOptions) {
   type InviteRow = {
     id: string | null; kind: string; household_id: string; created_by: string; created_at: string; expires_at: string;
     revoked: number; role: string | null; label: string | null; token: string | null; code: string | null; used_by: string | null; used_at: string | null;
+    guest_days?: number | null;
   };
   const now = () => new Date().toISOString();
   const inviteStatus = (row: InviteRow) =>
     row.used_by ? 'used' : Number(row.revoked) ? 'revoked' : row.expires_at < now() ? 'expired' : 'pending';
   /** Roles a newcomer can be given. */
-  const joinRoles = (home: HomeApp, householdId: string): Role[] =>
-    home.platform.graph.requireNode(householdId).props.kind === 'family' ? ['family_member', 'child'] : ['tenant'];
-  const pickRole = (home: HomeApp, householdId: string, wanted: unknown): Role => {
-    const roles = joinRoles(home, householdId);
+  /** Roles someone can be given; only an owner hands out the manager role. */
+  const joinRoles = (home: HomeApp, householdId: string, actorRole: Role = 'owner'): Role[] => [
+    ...((home.platform.graph.requireNode(householdId).props.kind === 'family' ? ['family_member', 'child'] : ['tenant']) as Role[]),
+    ...(actorRole === 'owner' ? (['manager'] as Role[]) : []),
+    'guest',
+  ];
+  const pickRole = (home: HomeApp, householdId: string, wanted: unknown, actorRole: Role = 'owner'): Role => {
+    const roles = joinRoles(home, householdId, actorRole);
     if (wanted === undefined || wanted === null || wanted === '') return roles[0]!;
     if (!roles.includes(wanted as Role)) throw bad('role_invalid');
     return wanted as Role;
@@ -420,6 +502,7 @@ export async function createServer(options: ServerOptions) {
       id: row.id,
       label: row.label ?? '',
       role: row.role,
+      guestDays: row.guest_days ?? null,
       status,
       createdAt: row.created_at,
       expiresAt: row.expires_at,
@@ -431,7 +514,7 @@ export async function createServer(options: ServerOptions) {
   };
 
   app.get('/api/households/:hid/invites', async (c) => {
-    const { householdId, home } = await requireManager(c);
+    const { householdId, home, role: actorRole } = await requireManager(c);
     const rows = await db.all<InviteRow>('SELECT * FROM invites WHERE household_id = ? AND id IS NOT NULL ORDER BY created_at DESC LIMIT 50', householdId);
     const code = rows.find((r) => r.kind === 'code' && inviteStatus(r) === 'pending');
     const requests = new Map<string, string>();
@@ -449,16 +532,18 @@ export async function createServer(options: ServerOptions) {
     return c.json({
       code: code ? codeDto(code) : null,
       links: rows.filter((r) => r.kind === 'link').map((r) => linkDto(c, home, r, requests, names)),
-      roles: joinRoles(home, householdId),
+      roles: joinRoles(home, householdId, actorRole),
+      guestDays: GUEST_DAYS,
       approveJoins: needsApproval(home, householdId),
     });
   });
 
   app.post('/api/households/:hid/invites', async (c) => {
-    const { user, householdId, home } = await requireManager(c);
+    const { user, householdId, home, role: actorRole } = await requireManager(c);
     limit(limits.write, user.id);
     const data = await body(c);
-    const role = pickRole(home, householdId, data.role);
+    const role = pickRole(home, householdId, data.role, actorRole);
+    const days = role === 'guest' ? (guestDays(data.guestDays) ?? 7) : null;
     const label = str(data.label, { max: 60, field: 'label' }) ?? null;
     const pending = await db.get<{ n: number }>(
       "SELECT COUNT(*) AS n FROM invites WHERE household_id = ? AND kind = 'link' AND revoked = 0 AND used_by IS NULL AND expires_at > ?",
@@ -472,8 +557,8 @@ export async function createServer(options: ServerOptions) {
       expires_at: new Date(Date.now() + INVITE_DAYS * 86_400_000).toISOString(), revoked: 0, role, label, token, code: null, used_by: null, used_at: null,
     };
     await db.run(
-      'INSERT INTO invites (token_hash, id, kind, household_id, created_by, created_at, expires_at, role, label, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      sha256(token), row.id, 'link', householdId, user.id, row.created_at, row.expires_at, role, label, token,
+      'INSERT INTO invites (token_hash, id, kind, household_id, created_by, created_at, expires_at, role, label, token, guest_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      sha256(token), row.id, 'link', householdId, user.id, row.created_at, row.expires_at, role, label, token, days,
     );
     await logEvent(householdId, 'invite_created', 'managers', { actor: user, data: { label, role } });
     return c.json(linkDto(c, home, row), 201);
@@ -538,12 +623,12 @@ export async function createServer(options: ServerOptions) {
     return { invite: row, home, status: status! };
   };
 
-  const joinNow = async (user: User, householdId: string, home: HomeApp, role: Role, approvedBy?: User) => {
+  const joinNow = async (user: User, householdId: string, home: HomeApp, role: Role, approvedBy?: User, days?: number | null) => {
     if (home.platform.acl.members(householdId).length >= 20) throw bad('household_full');
-    await store.addMember(householdId, user, role);
+    await store.addMember(householdId, user, role, role === 'guest' ? guestUntil(days ?? 7) : undefined);
     await insertSystem(householdId, { key: 'joined', params: { name: user.name } });
     hub.publish(householdId, { type: 'changed', area: 'members' });
-    await logEvent(householdId, 'member_joined', 'members', { actor: approvedBy ?? null, subject: user, data: { role } });
+    await logEvent(householdId, 'member_joined', 'members', { actor: approvedBy ?? null, subject: user, data: { role, days: role === 'guest' ? (days ?? 7) : null } });
   };
   const latestRequest = (householdId: string, userId: string) =>
     db.get<{ id: string; status: string; decided_at: string | null }>(
@@ -551,7 +636,7 @@ export async function createServer(options: ServerOptions) {
       householdId,
       userId,
     );
-  const fileRequest = async (user: User, householdId: string, role: Role, via: string, label: string | null = null) => {
+  const fileRequest = async (user: User, householdId: string, role: Role, via: string, label: string | null = null, days: number | null = null) => {
     const existing = await latestRequest(householdId, user.id);
     if (existing?.status === 'pending') return;
     if (existing?.status === 'declined' && existing.decided_at && Date.now() - Date.parse(existing.decided_at) < 86_400_000) {
@@ -560,8 +645,8 @@ export async function createServer(options: ServerOptions) {
     const pending = await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM join_requests WHERE household_id = ? AND status = 'pending'", householdId);
     if (Number(pending?.n) >= 20) throw bad('too_many_requests');
     await db.run(
-      'INSERT INTO join_requests (id, household_id, user_id, role, via, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      `jr_${randomUUID()}`, householdId, user.id, role, via, 'pending', now(),
+      'INSERT INTO join_requests (id, household_id, user_id, role, via, status, created_at, guest_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      `jr_${randomUUID()}`, householdId, user.id, role, via, 'pending', now(), days,
     );
     hub.publish(householdId, { type: 'changed', area: 'requests' });
     await logEvent(householdId, 'join_requested', 'managers', { subject: user, data: { via: via === 'code' ? 'code' : 'link', role, label } });
@@ -586,12 +671,12 @@ export async function createServer(options: ServerOptions) {
     }
     const role = (invite.role as Role | null) ?? joinRoles(home, householdId)[0]!;
     const approval = needsApproval(home, householdId);
-    if (approval) await fileRequest(user, householdId, role, `link:${invite.id}`, invite.label);
+    if (approval) await fileRequest(user, householdId, role, `link:${invite.id}`, invite.label, invite.guest_days ?? null);
     // Claim the link; if someone else claimed it a moment earlier, it's used.
     const claimed = await db.run('UPDATE invites SET used_by = ?, used_at = ?, token = NULL WHERE id = ? AND used_by IS NULL', user.id, now(), invite.id);
     if (!claimed.changes) throw new HttpError(410, 'invite_used');
     if (approval) return { status: 'pending', householdName };
-    await joinNow(user, householdId, home, role);
+    await joinNow(user, householdId, home, role, undefined, invite.guest_days);
     return { status: 'joined', householdId, householdName };
   };
 
@@ -634,9 +719,9 @@ export async function createServer(options: ServerOptions) {
   });
 
   app.get('/api/households/:hid/requests', async (c) => {
-    const { householdId, home } = await requireManager(c);
-    const rows = await db.all<{ id: string; user_id: string; role: string; via: string; created_at: string; name: string; email: string; avatar: string | null }>(
-      `SELECT r.id, r.user_id, r.role, r.via, r.created_at, u.name, u.email, u.avatar FROM join_requests r JOIN users u ON u.id = r.user_id
+    const { householdId, home, role: actorRole } = await requireManager(c);
+    const rows = await db.all<{ id: string; user_id: string; role: string; via: string; created_at: string; name: string; email: string; avatar: string | null; guest_days: number | null }>(
+      `SELECT r.id, r.user_id, r.role, r.via, r.created_at, r.guest_days, u.name, u.email, u.avatar FROM join_requests r JOIN users u ON u.id = r.user_id
        WHERE r.household_id = ? AND r.status = 'pending' ORDER BY r.created_at`,
       householdId,
     );
@@ -644,8 +729,10 @@ export async function createServer(options: ServerOptions) {
       (await db.all<{ id: string; label: string | null }>("SELECT id, label FROM invites WHERE household_id = ? AND kind = 'link'", householdId)).map((r) => [r.id, r.label]),
     );
     return c.json({
-      roles: joinRoles(home, householdId),
+      roles: joinRoles(home, householdId, actorRole),
+      guestDays: GUEST_DAYS,
       requests: rows.map((r) => ({
+        guestDays: r.guest_days ?? null,
         id: r.id,
         name: r.name,
         email: r.email,
@@ -659,21 +746,23 @@ export async function createServer(options: ServerOptions) {
   });
 
   app.post('/api/households/:hid/requests/:rid/:decision', async (c) => {
-    const { user, householdId, home } = await requireManager(c);
+    const { user, householdId, home, role: actorRole } = await requireManager(c);
     const decision = c.req.param('decision');
     if (decision !== 'approve' && decision !== 'decline') throw new HttpError(404, 'not_found');
     const data = await body(c).catch(() => ({}) as Record<string, unknown>);
-    const row = await db.get<{ id: string; user_id: string; status: string; role: string }>(
-      'SELECT id, user_id, status, role FROM join_requests WHERE id = ? AND household_id = ?',
+    const row = await db.get<{ id: string; user_id: string; status: string; role: string; guest_days: number | null }>(
+      'SELECT id, user_id, status, role, guest_days FROM join_requests WHERE id = ? AND household_id = ?',
       c.req.param('rid'),
       householdId,
     );
     if (!row || row.status !== 'pending') throw new HttpError(404, 'not_found');
     if (decision === 'approve') {
-      const role = data.role === undefined ? (joinRoles(home, householdId).includes(row.role as Role) ? (row.role as Role) : joinRoles(home, householdId)[0]!) : pickRole(home, householdId, data.role);
+      const allowed = joinRoles(home, householdId, actorRole);
+      const role = data.role === undefined ? (allowed.includes(row.role as Role) ? (row.role as Role) : allowed[0]!) : pickRole(home, householdId, data.role, actorRole);
+      const days = role === 'guest' ? (guestDays(data.guestDays) ?? row.guest_days ?? 7) : null;
       const newcomer = await auth.getUser(row.user_id);
       if (!newcomer) throw new HttpError(404, 'not_found');
-      if (!home.platform.acl.roleOf(newcomer.id, householdId)) await joinNow(newcomer, householdId, home, role, user);
+      if (!home.platform.acl.roleOf(newcomer.id, householdId)) await joinNow(newcomer, householdId, home, role, user, days);
     } else {
       await logEvent(householdId, 'request_declined', 'managers', { actor: user, subject: { id: row.user_id, name: (await auth.getUser(row.user_id))?.name ?? '' } });
     }
@@ -727,6 +816,25 @@ export async function createServer(options: ServerOptions) {
 
   // ── Inbox ────────────────────────────────────────────────────────────
   type EventRow = { id: string; kind: string; audience: string; actor_id: string | null; subject_id: string | null; data: string; created_at: string };
+  const eventDto = (r: EventRow, userId: string, since: string) => {
+    const data = JSON.parse(r.data) as Record<string, unknown>;
+    const mine = r.actor_id === userId || r.subject_id === userId;
+    return {
+      id: r.id,
+      kind: r.kind,
+      actorName: (data.actorName as string | null) ?? null,
+      subjectName: (data.subjectName as string | null) ?? null,
+      actorIsMe: r.actor_id === userId,
+      subjectIsMe: r.subject_id === userId,
+      label: (data.label as string | null) ?? null,
+      role: (data.role as string | null) ?? null,
+      from: (data.from as string | null) ?? null,
+      days: (data.days as number | null) ?? null,
+      via: (data.via as string | null) ?? null,
+      createdAt: r.created_at,
+      unread: !mine && r.created_at > since,
+    };
+  };
   const visibleEvents = (role: Role) => (MANAGER_ROLES.includes(role) ? ['members', 'managers'] : ['members']);
   const readAt = async (userId: string, householdId: string) =>
     (await db.get<{ read_at: string }>('SELECT read_at FROM inbox_reads WHERE user_id = ? AND household_id = ?', userId, householdId))?.read_at ?? '';
@@ -750,23 +858,7 @@ export async function createServer(options: ServerOptions) {
     );
     return c.json({
       readAt: since || null,
-      events: rows.map((r) => {
-        const data = JSON.parse(r.data) as Record<string, unknown>;
-        const mine = r.actor_id === user.id || r.subject_id === user.id;
-        return {
-          id: r.id,
-          kind: r.kind,
-          actorName: (data.actorName as string | null) ?? null,
-          subjectName: (data.subjectName as string | null) ?? null,
-          actorIsMe: r.actor_id === user.id,
-          subjectIsMe: r.subject_id === user.id,
-          label: (data.label as string | null) ?? null,
-          role: (data.role as string | null) ?? null,
-          via: (data.via as string | null) ?? null,
-          createdAt: r.created_at,
-          unread: !mine && r.created_at > since,
-        };
-      }),
+      events: rows.map((r) => eventDto(r, user.id, since)),
     });
   });
 
@@ -1167,7 +1259,9 @@ export async function createServer(options: ServerOptions) {
   const moneyChanged = (householdId: string) => hub.publish(householdId, { type: 'changed', area: 'bills' });
 
   app.get('/api/households/:hid/money', async (c) => {
-    const { user, householdId, home } = await requireMember(c);
+    const { user, householdId, home, role } = await requireMember(c);
+    // Money is for the people who live here; guests don't see it.
+    if (!RESIDENT_ROLES.includes(role)) throw new HttpError(403, 'forbidden');
     return c.json(await moneyView(home, user.id, householdId));
   });
 
@@ -1316,6 +1410,7 @@ async function members(home: HomeApp, householdId: string, auth: Auth) {
     id: m.userId,
     name: home.platform.graph.getNode<PersonProps>(m.userId)?.label ?? '?',
     role: m.role,
+    expiresAt: home.platform.membership(householdId, m.userId)?.expiresAt ?? null,
     avatar: avatars[m.userId] ?? DEFAULT_CHARACTER,
   }));
 }

@@ -67,6 +67,23 @@ export class Platform {
     this.graph.updateNode<PersonProps>(userId, { left: true });
   }
 
+  /** Change someone's role (and, for guests, until when they may stay). */
+  setRole(householdId: string, userId: string, role: Role, extra: { expiresAt?: string } = {}): void {
+    if (!this.acl.roleOf(userId, householdId)) throw new Error('not_a_member');
+    this.graph.unlink(userId, 'member_of', householdId);
+    this.graph.link(userId, 'member_of', householdId, { role, ...stripUndefined(extra) });
+    this.graph.updateNode<PersonProps>(userId, { role });
+    this.acl.grant(userId, householdId, role);
+  }
+
+  /** The membership edge's details, e.g. a guest's expiry. */
+  membership(householdId: string, userId: string): { role: Role; expiresAt?: string } | undefined {
+    const role = this.acl.roleOf(userId, householdId);
+    if (!role) return undefined;
+    const props = this.graph.edgeBetween(userId, 'member_of', householdId)?.props ?? {};
+    return { role, expiresAt: typeof props.expiresAt === 'string' ? props.expiresAt : undefined };
+  }
+
   renameMember(userId: string, name: string): void {
     this.graph.updateNode(userId, {}, name);
   }
@@ -103,8 +120,9 @@ export class Platform {
     userId: string,
     name: string,
     role: Role,
-    extra: Omit<PersonProps, 'role'> = {},
+    extra: Omit<PersonProps, 'role'> & { expiresAt?: string } = {},
   ): GraphNode<PersonProps> {
+    const { expiresAt, ...personExtra } = extra;
     const home = this.graph.requireNode(householdId);
     const person =
       this.graph.getNode<PersonProps>(userId) ??
@@ -115,9 +133,10 @@ export class Platform {
         domain: 'core',
         label: name,
         ownerId: userId,
-        props: { role, ...stripUndefined(extra) },
+        props: { role, ...stripUndefined(personExtra) },
       });
-    this.graph.link(person.id, 'member_of', home.id, { role });
+    if (person.props.left || person.props.role !== role) this.graph.updateNode<PersonProps>(person.id, { role, left: false });
+    this.graph.link(person.id, 'member_of', home.id, stripUndefined({ role, expiresAt }));
     this.acl.grant(userId, householdId, role);
     return person;
   }

@@ -228,6 +228,9 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
    );
    ALTER TABLE join_requests ADD COLUMN seen_at TEXT;
    UPDATE join_requests SET seen_at = decided_at, status = 'declined' WHERE status = 'dismissed'`,
+  // 6: guests stay for a set number of days.
+  () => `ALTER TABLE invites ADD COLUMN guest_days INTEGER;
+   ALTER TABLE join_requests ADD COLUMN guest_days INTEGER`,
 ];
 
 async function migrate(db: Database): Promise<void> {

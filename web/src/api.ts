@@ -75,6 +75,8 @@ export interface Member {
   name: string;
   role: string;
   avatar: string;
+  /** Guests only: when their stay ends. */
+  expiresAt: string | null;
 }
 
 export interface Household {
@@ -82,7 +84,10 @@ export interface Household {
   name: string;
   currency: string;
   kind: string;
-  me: { id: string; role: string };
+  me: { id: string; role: string; expiresAt: string | null };
+  /** Roles the owner can give (empty for everyone else). */
+  roles: string[];
+  guestDays: number[];
   members: Member[];
   hasSamples: boolean;
   canInvite: boolean;
