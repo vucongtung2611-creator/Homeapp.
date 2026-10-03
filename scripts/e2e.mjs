@@ -227,6 +227,24 @@ try {
   await p.getByRole('link', { name: 'Chat' }).click();
   step('Linh added An’s account on the same browser and switched back and forth without signing out');
 
+  // ── 3e. Colour themes: chosen in Settings, remembered after a reload ─
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  for (const [name, theme] of [['Trắng ngà', 'ivory'], ['Hồng nhạt', 'pink'], ['Xanh nhạt', 'blue'], ['Vàng nhạt', 'yellow'], ['Tối', 'dark']]) {
+    await p.getByTestId('themes').getByRole('radio', { name }).click();
+    await expect((await p.locator('html').getAttribute('data-theme')) === theme, `theme ${theme}`);
+    await shot(p, `05g-theme-${theme}`);
+  }
+  await p.getByTestId('themes').getByRole('radio', { name: 'Hồng nhạt' }).click();
+  await p.reload();
+  await p.getByTestId('themes').waitFor();
+  await expect((await p.locator('html').getAttribute('data-theme')) === 'pink', 'theme remembered after reload');
+  const bg = await p.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await expect(bg === 'rgb(251, 241, 243)', `soft pink background (${bg})`);
+  await p.getByTestId('themes').getByRole('radio', { name: 'Tự động' }).click();
+  await expect((await p.locator('html').getAttribute('data-theme')) === null, 'back to automatic');
+  await p.getByRole('link', { name: 'Chat' }).click();
+  step('colour themes: ivory, pink, blue, yellow, dark; the choice survives a reload');
+
   // ── 4. Realtime chat ─────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Chat' }).click();
   await p.getByText('An đã vào nhà 🎉').waitFor({ timeout: 5000 });

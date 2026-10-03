@@ -145,6 +145,15 @@ const fr: Messages = {
     removeAria: 'Déconnecter {name} de ce navigateur',
     removeConfirm: 'Déconnecter {name} de ce navigateur ?',
   },
+  theme: {
+    label: 'Couleurs',
+    auto: 'Automatique',
+    ivory: 'Ivoire',
+    pink: 'Rose pâle',
+    blue: 'Bleu pâle',
+    yellow: 'Jaune pâle',
+    dark: 'Sombre',
+  },
   create: {
     title: 'Créer votre foyer',
     lead: 'Vous obtiendrez ensuite un lien pour inviter tout le monde.',

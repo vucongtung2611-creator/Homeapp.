@@ -145,6 +145,15 @@ const nl: Messages = {
     removeAria: '{name} uitloggen in deze browser',
     removeConfirm: '{name} uitloggen in deze browser?',
   },
+  theme: {
+    label: 'Kleuren',
+    auto: 'Automatisch',
+    ivory: 'Ivoor',
+    pink: 'Zachtroze',
+    blue: 'Lichtblauw',
+    yellow: 'Zachtgeel',
+    dark: 'Donker',
+  },
   create: {
     title: 'Maak je huis aan',
     lead: 'Daarna krijg je een link om iedereen uit te nodigen.',

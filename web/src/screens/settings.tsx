@@ -7,6 +7,7 @@ import { navigate, type Session } from '../router.js';
 import { Spinner, toast, toastError, useLoad } from '../ui.js';
 import { roleLabel } from '../util.js';
 import { replayTour } from '../tour.js';
+import { ThemePicker } from '../theme.js';
 
 export function SettingsScreen({ home, session, reloadHome }: { home: Household; session: Session; reloadHome: () => void }) {
   const [busy, setBusy] = useState<string>();
@@ -61,6 +62,11 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
             })
           }
         />
+      </section>
+
+      <h2 class="section-title">{t('theme.label')}</h2>
+      <section class="card">
+        <ThemePicker />
       </section>
 
       <h2 class="section-title">{t('language.label')}</h2>

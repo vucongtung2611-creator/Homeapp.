@@ -148,6 +148,15 @@ const en = {
     removeAria: 'Sign {name} out of this browser',
     removeConfirm: 'Sign {name} out of this browser?',
   },
+  theme: {
+    label: 'Colours',
+    auto: 'Automatic',
+    ivory: 'Ivory',
+    pink: 'Soft pink',
+    blue: 'Soft blue',
+    yellow: 'Soft yellow',
+    dark: 'Dark',
+  },
   create: {
     title: 'Create your home',
     lead: 'Next you’ll get a link to invite everyone.',

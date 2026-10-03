@@ -13,6 +13,7 @@ import { ErrorState, Icon, Skeleton, Spinner, Toasts, toast, useLoad } from './u
 import { partOfDay } from './util.js';
 
 import { Tour, tourDone } from './tour.js';
+import { applyTheme } from './theme.js';
 import { bindRouter, navigate, type Listener, type Live, type Session } from './router.js';
 
 const LAST_HOME = 'homeapp:last-home';
@@ -374,4 +375,5 @@ function Root() {
   );
 }
 
+applyTheme();
 render(<Root />, document.getElementById('app')!);

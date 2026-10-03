@@ -145,6 +145,15 @@ const de: Messages = {
     removeAria: '{name} in diesem Browser abmelden',
     removeConfirm: '{name} in diesem Browser abmelden?',
   },
+  theme: {
+    label: 'Farben',
+    auto: 'Automatisch',
+    ivory: 'Elfenbein',
+    pink: 'Zartrosa',
+    blue: 'Hellblau',
+    yellow: 'Zartgelb',
+    dark: 'Dunkel',
+  },
   create: {
     title: 'Dein Zuhause erstellen',
     lead: 'Danach bekommst du einen Link, um alle einzuladen.',

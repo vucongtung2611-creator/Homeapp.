@@ -59,8 +59,10 @@
   color-scheme: light;
 }
 
+/* Themes. "Automatic" (no data-theme) follows the device's light/dark setting.
+   Each palette keeps body text ≥ 14:1 and muted text, links and buttons ≥ 4.5:1. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #171716;
     --surface: #1f1f1e;
     --surface-2: #272725;
@@ -80,6 +82,46 @@
     --warn-soft: #362b17;
     color-scheme: dark;
   }
+}
+:root[data-theme='dark'] {
+    --bg: #171716;
+    --surface: #1f1f1e;
+    --surface-2: #272725;
+    --surface-3: #31312e;
+    --text: #ecebe8;
+    --muted: #a3a19b;
+    --faint: #75736e;
+    --line: #2f2f2c;
+    --ink: #ecebe8;
+    --on-ink: #171716;
+    --accent: #5cc0a2;
+    --accent-soft: #1d3530;
+    --accent-text: #8fd8c1;
+    --danger: #f08b77;
+    --danger-soft: #3a211c;
+    --warn: #e7b65b;
+    --warn-soft: #362b17;
+    color-scheme: dark;
+}
+:root[data-theme='ivory'] {
+  --bg: #f7f3ea; --surface: #fffcf5; --surface-2: #efe9dc; --surface-3: #e6dfcf; --line: #e7e0d1;
+  --text: #24211c; --ink: #24211c; --muted: #69625a; --faint: #978f83;
+  --accent: #2f7d68; --accent-soft: #e3eee6; --accent-text: #1f5f4e;
+}
+:root[data-theme='pink'] {
+  --bg: #fbf1f3; --surface: #fffafb; --surface-2: #f5e4e8; --surface-3: #eed6dc; --line: #f0dde2;
+  --text: #2a1d21; --ink: #2a1d21; --muted: #6e5a60; --faint: #a08a90;
+  --accent: #b0476c; --accent-soft: #f8e1e8; --accent-text: #8c3254;
+}
+:root[data-theme='blue'] {
+  --bg: #eff5fa; --surface: #fafcfe; --surface-2: #e1ecf5; --surface-3: #d3e3f0; --line: #dbe6ef;
+  --text: #18222b; --ink: #18222b; --muted: #56636f; --faint: #8794a0;
+  --accent: #2c6aa0; --accent-soft: #dceaf6; --accent-text: #20527d;
+}
+:root[data-theme='yellow'] {
+  --bg: #fbf6e4; --surface: #fffdf4; --surface-2: #f3ead0; --surface-3: #ebe0bf; --line: #ece3c8;
+  --text: #262113; --ink: #262113; --muted: #6a604a; --faint: #9b917a;
+  --accent: #8a6a00; --accent-soft: #f4e9c4; --accent-text: #6b5200;
 }
 
 * { box-sizing: border-box; }
@@ -466,3 +508,10 @@ dl.details dd { margin: 0; }
 .tour-dots { display: flex; gap: 6px; margin: 0 0 16px; }
 .tour-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
 .tour-dots span.on { background: var(--accent); width: 18px; border-radius: 4px; }
+
+/* Theme picker */
+.swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.swatch { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: var(--radius-sm); border: 2px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; }
+.swatch[aria-checked='true'] { border-color: var(--accent); }
+.swatch .chip-colors { display: flex; width: 44px; height: 28px; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08); }
+.swatch .chip-colors span { flex: 1; }

@@ -29,6 +29,7 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 | Hoá đơn | Dán chữ hoặc chụp ảnh → tách số tiền, hạn, kỳ (en, vi, fr, de, nl); chia đều; ai nợ ai; đánh dấu đã trả |
 | Riêng tư | Mục riêng chỉ người tạo thấy; khách không thấy hoá đơn và mục riêng; người lạ nhận "không tìm thấy" |
 | Xuất dữ liệu | Chủ nhà tải toàn bộ nhà thành .zip (data.json + ảnh, tài liệu). Không gồm mục riêng của người khác |
+| Giao diện màu | Tự động (theo máy), Trắng ngà, Hồng nhạt, Xanh nhạt, Vàng nhạt, Tối; nhớ lựa chọn trên từng máy; độ tương phản chữ đạt chuẩn WCAG AA |
 | Hướng dẫn lần đầu | 4 bước, dùng tốt trên điện thoại, bỏ qua được, xem lại được |
 | Ngôn ngữ | Tiếng Anh, Việt, Pháp, Đức, Hà Lan; thông báo lỗi dễ hiểu (có kiểm thử bảo đảm mọi lỗi đều có câu dịch) |
 | Chạy thử trên máy | `npm run try`: một nhà mẫu, 4 tài khoản |

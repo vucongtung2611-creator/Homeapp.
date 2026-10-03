@@ -145,6 +145,15 @@ const vi: Messages = {
     removeAria: 'Đăng xuất {name} khỏi trình duyệt này',
     removeConfirm: 'Đăng xuất {name} khỏi trình duyệt này?',
   },
+  theme: {
+    label: 'Giao diện màu',
+    auto: 'Tự động',
+    ivory: 'Trắng ngà',
+    pink: 'Hồng nhạt',
+    blue: 'Xanh nhạt',
+    yellow: 'Vàng nhạt',
+    dark: 'Tối',
+  },
   create: {
     title: 'Tạo nhà của bạn',
     lead: 'Sau đó bạn sẽ có một link để mời mọi người vào.',
