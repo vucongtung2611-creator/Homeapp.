@@ -12,6 +12,7 @@ import { onLocaleChange, t, tPick } from './i18n/index.js';
 import { ErrorState, Icon, Skeleton, Spinner, Toasts, toast, useLoad } from './ui.js';
 import { partOfDay } from './util.js';
 
+import { Tour, tourDone } from './tour.js';
 import { bindRouter, navigate, type Listener, type Live, type Session } from './router.js';
 
 const LAST_HOME = 'homeapp:last-home';
@@ -226,6 +227,13 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
   const home = useLoad(() => api<Household>('GET', `/api/households/${householdId}`), [householdId]);
   const live = useLive(householdId, (session.config?.chatIdleMinutes ?? 3) * 60_000);
   const [unread, setUnread] = useState(false);
+  const userId = session.user?.id ?? '';
+  const [touring, setTouring] = useState(() => Boolean(userId) && !tourDone(userId));
+  useEffect(() => {
+    const show = () => setTouring(true);
+    window.addEventListener('mate:tour', show);
+    return () => window.removeEventListener('mate:tour', show);
+  }, []);
 
   useEffect(() => rememberHome(householdId), [householdId]);
   useEffect(
@@ -323,6 +331,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       ) : (
         <SettingsScreen home={h} session={session} reloadHome={() => home.reload(true)} />
       )}
+      {touring && h && <Tour userId={userId} guest={h.me.role === 'guest'} onDone={() => setTouring(false)} />}
       <nav class="tabbar" aria-label={t('tabs.nav')}>
         <TabLink to={`/h/${householdId}/chat`} active={tab === 'chat'} label={t('tabs.chat')} icon={<Icon.chat />} dot={unread} />
         <TabLink to={`/h/${householdId}/library`} active={tab === 'library'} label={t('tabs.library')} icon={<Icon.library />} />

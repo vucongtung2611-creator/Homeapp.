@@ -19,6 +19,8 @@ import {
   type TransactionProps,
 } from '../src/index.js';
 import { DEFAULT_CHARACTER } from '../src/characters.js';
+import { COLLECTIONS, RENTAL_DOCS } from '../src/modules/items.js';
+import { zip } from './zip.js';
 import { Auth, AuthError, RateLimiter, newInviteCode, newToken, normalizeInviteCode, sha256, type User } from './auth.js';
 import { openPostgresUrl, openSqlite, type Database } from './database.js';
 import { FileStore, MAX_UPLOAD_BYTES, type StoredFile } from './files.js';
@@ -73,6 +75,13 @@ const GUEST_DAYS = [1, 3, 7, 14, 30, 90];
 
 type Env = { Variables: { user?: User } };
 
+const EXPORT_README = `MATE — export of one home
+data.json   everything as JSON: the home, members, chat, library, bills and money, and the home log
+files/      photos and documents from the chat and the library
+
+Private items belonging to other people are not included.
+`;
+
 export async function createServer(options: ServerOptions) {
   const db =
     options.db ?? (options.databaseUrl ? await openPostgresUrl(options.databaseUrl) : await openSqlite(join(options.dataDir, 'homeapp.db')));
@@ -93,6 +102,8 @@ export async function createServer(options: ServerOptions) {
     invite: new RateLimiter(30, 60_000),
     joinFail: new RateLimiter(10, 15 * 60_000), // wrong links or codes, per account
     joinFailIp: new RateLimiter(30, 15 * 60_000), // … and per IP (a shared Wi‑Fi has several people)
+    loginEmail: new RateLimiter(30, 15 * 60_000), // one account tried from many places
+    export: new RateLimiter(10, 60 * 60_000),
     message: new RateLimiter(30, 10_000),
     upload: new RateLimiter(40, 10 * 60_000),
     write: new RateLimiter(120, 60_000),
@@ -274,6 +285,7 @@ export async function createServer(options: ServerOptions) {
     const data = await body(c);
     limit(limits.loginIp, ip(c));
     limit(limits.login, `${ip(c)}|${String(data.email ?? '').toLowerCase()}`);
+    limit(limits.loginEmail, String(data.email ?? '').trim().toLowerCase());
     const user = await auth.login({ email: data.email, password: data.password });
     await startSession(c, user);
     return c.json({ user });
@@ -907,6 +919,79 @@ export async function createServer(options: ServerOptions) {
     });
   });
 
+  // ── Export ───────────────────────────────────────────────────────────
+  /**
+   * Everything in the home the owner can see, as a ZIP (data.json + files) or
+   * plain JSON. Other people's private items are never included.
+   */
+  app.get('/api/households/:hid/export', async (c) => {
+    const { user, householdId, home } = await requireOwner(c);
+    limit(limits.export, user.id);
+    const node = home.platform.graph.requireNode(householdId);
+    const rows = await db.all<MessageRow>('SELECT * FROM messages WHERE household_id = ? ORDER BY seq', householdId);
+    const items = home.items.list(user.id, householdId);
+    const fileIds = new Set<string>([
+      ...rows.map((r) => r.file_id).filter((id): id is string => Boolean(id)),
+      ...items.flatMap((i) => i.props.attachments.map((a) => a.fileId)),
+    ]);
+    const included: { id: string; path: string; file: StoredFile }[] = [];
+    for (const id of fileIds) {
+      const file = await files.get(id);
+      if (!file || !(await canReadFile(user.id, file))) continue;
+      included.push({ id, path: `files/${id.slice(0, 8)}-${file.name.replace(/[\\/:*?"<>|]/g, '_')}`, file });
+    }
+    const pathOf = (id: string | null | undefined) => (id ? (included.find((f) => f.id === id)?.path ?? null) : null);
+    const log = await db.all<EventRow>('SELECT * FROM household_events WHERE household_id = ? ORDER BY created_at', householdId);
+    const data = {
+      app: 'MATE',
+      format: 1,
+      exportedAt: new Date().toISOString(),
+      exportedBy: user.name,
+      household: { id: householdId, name: node.label, currency: node.props.currency, kind: node.props.kind, approveJoins: node.props.approveJoins !== false },
+      members: (await members(home, householdId, auth)).map((m) => ({ name: m.name, role: m.role, guestUntil: m.expiresAt })),
+      messages: rows.map((r) => ({
+        at: r.created_at,
+        from: r.user_id ? (home.platform.graph.getNode(r.user_id)?.label ?? null) : null,
+        text: r.text,
+        system: r.meta ? JSON.parse(r.meta) : null,
+        file: pathOf(r.file_id),
+      })),
+      library: items.map((i) => ({
+        title: i.label,
+        kind: i.props.kind,
+        body: i.props.body ?? '',
+        tags: i.props.tags,
+        ...i.props.attributes,
+        private: i.visibility === 'private',
+        by: i.ownerId ? (home.platform.graph.getNode(i.ownerId)?.label ?? null) : null,
+        createdAt: i.createdAt.toISOString(),
+        updatedAt: i.updatedAt.toISOString(),
+        files: i.props.attachments.map((a) => pathOf(a.fileId)).filter(Boolean),
+      })),
+      money: await moneyView(home, user.id, householdId),
+      log: log.map((r) => ({ at: r.created_at, ...eventDto(r, user.id, '\uffff'), id: undefined, unread: undefined, actorIsMe: undefined, subjectIsMe: undefined })),
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    const slug =
+      node.label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'home';
+    if (c.req.query('format') === 'json') {
+      return new Response(JSON.stringify(data, null, 2), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="mate-${slug}-${stamp}.json"` },
+      });
+    }
+    const entries: { name: string; data: Uint8Array }[] = [{ name: 'data.json', data: new TextEncoder().encode(JSON.stringify(data, null, 2)) }];
+    for (const f of included) entries.push({ name: f.path, data: await files.read(f.file) });
+    entries.push({ name: 'README.txt', data: new TextEncoder().encode(EXPORT_README) });
+    const body = zip(entries);
+    return new Response(body as unknown as BodyInit, {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Length': String(body.byteLength),
+        'Content-Disposition': `attachment; filename="mate-${slug}-${stamp}.zip"`,
+      },
+    });
+  });
+
   /**
    * A member can download a file if they uploaded it, it is in the
    * household chat, or it is attached to a library item they can read.
@@ -1086,9 +1171,32 @@ export async function createServer(options: ServerOptions) {
   });
 
   // ── Library ──────────────────────────────────────────────────────────
+  /** Collection and record details from a request; `existing` keeps what isn't sent. */
+  const itemAttributes = (data: Record<string, unknown>, existing: Record<string, unknown> = {}) => {
+    const out: Record<string, unknown> = { ...existing };
+    const set = (key: string, value: unknown) => (value === undefined ? undefined : value === null || value === '' ? delete out[key] : (out[key] = value));
+    if (data.collection !== undefined) set('collection', data.collection === null || data.collection === '' ? null : oneOf(data.collection, COLLECTIONS, 'collection'));
+    if (data.docType !== undefined) set('docType', data.docType === null || data.docType === '' ? null : oneOf(data.docType, RENTAL_DOCS, 'docType'));
+    if (data.date !== undefined) set('date', data.date === null || data.date === '' ? null : isoDate(data.date, 'date'));
+    if (data.expiresOn !== undefined) set('expiresOn', data.expiresOn === null || data.expiresOn === '' ? null : isoDate(data.expiresOn, 'expiresOn'));
+    if (data.amount !== undefined) set('amount', data.amount === null || data.amount === '' ? null : amount(data.amount));
+    // Record details only make sense on rental records.
+    if (out.collection !== 'rental') {
+      delete out.docType;
+      delete out.amount;
+    }
+    return out;
+  };
+
   function itemDto(home: HomeApp, userId: string, householdId: string, item: GraphNode<HouseItemProps>) {
     const owner = home.platform.acl.roleOf(userId, householdId) === 'owner';
+    const a = item.props.attributes ?? {};
     return {
+      collection: (a.collection as string | undefined) ?? null,
+      docType: (a.docType as string | undefined) ?? null,
+      date: (a.date as string | undefined) ?? null,
+      expiresOn: (a.expiresOn as string | undefined) ?? null,
+      amount: (a.amount as number | undefined) ?? null,
       id: item.id,
       kind: item.props.kind,
       title: item.label,
@@ -1112,14 +1220,19 @@ export async function createServer(options: ServerOptions) {
     const q = c.req.query('q')?.slice(0, 200);
     const tag = c.req.query('tag')?.slice(0, 40);
     const kind = c.req.query('kind');
+    const collection = c.req.query('collection');
     const list = home.items.list(user.id, householdId, {
       q,
       tag,
       kind: kind ? oneOf(kind, ['note', 'document', 'photo', 'link'] as const, 'kind') : undefined,
+      collection: collection ? oneOf(collection, COLLECTIONS, 'collection') : undefined,
     });
+    const today = c.req.query('today') && /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('today')!) ? c.req.query('today')! : new Date().toISOString().slice(0, 10);
     return c.json({
       items: list.map((i) => itemDto(home, user.id, householdId, i)),
       tags: home.items.tags(user.id, householdId),
+      collections: home.items.collections(user.id, householdId),
+      expiring: home.items.expiring(user.id, householdId, today).map((i) => itemDto(home, user.id, householdId, i)),
     });
   });
 
@@ -1143,6 +1256,7 @@ export async function createServer(options: ServerOptions) {
         body: str(data.body, { max: 20_000, field: 'body' }),
         tags: tags(data.tags),
         attachments,
+        attributes: itemAttributes(data),
         private: bool(data.private, false),
       }),
     );
@@ -1167,6 +1281,7 @@ export async function createServer(options: ServerOptions) {
         body: data.body === undefined ? undefined : (str(data.body, { max: 20_000, field: 'body' }) ?? ''),
         tags: data.tags === undefined ? undefined : tags(data.tags),
         attachments,
+        attributes: ['collection', 'docType', 'date', 'expiresOn', 'amount'].some((k) => data[k] !== undefined) ? itemAttributes(data, existing.props.attributes) : undefined,
         private: data.private === undefined ? undefined : bool(data.private, false),
       }),
     );

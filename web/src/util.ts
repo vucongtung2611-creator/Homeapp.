@@ -6,7 +6,10 @@ export function errorText(err: unknown): string {
   const code = err instanceof ApiError ? err.code : err instanceof Error ? err.message : 'unknown';
   const key = `errors.${code}` as MessageKey;
   const text = t(key);
-  return text === key ? t('errors.withCode', { code }) : text;
+  if (text !== key) return text;
+  // Field checks ("amount_invalid", "name_required"…) share a general message.
+  const general = /_(invalid|required|too_long)$/.exec(code)?.[1];
+  return general ? t(`errors.field_${general}` as MessageKey) : t('errors.withCode', { code });
 }
 
 export function todayIso(): string {

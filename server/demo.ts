@@ -56,9 +56,12 @@ function content(lang: DemoLang, now: Date) {
         wifi: { title: 'Wi‑Fi của nhà', body: 'Tên mạng: NhaSo7\nMật khẩu: chaomung2026\nModem đặt ở kệ phòng khách.', tags: ['wifi', 'nhà'] },
         trash: { title: 'Lịch đổ rác', body: 'Thứ Hai và thứ Năm: rác thường, để trước cổng trước 7 giờ tối.\nThứ Bảy: rác tái chế (giấy, chai nhựa).', tags: ['việc nhà'] },
         rules: { title: 'Nội quy nhà', body: '1. Rửa bát ngay sau khi ăn.\n2. Khách ngủ lại báo trước trong nhóm chat.\n3. Sau 11 giờ đêm giữ yên lặng.', tags: ['nhà'] },
-        lease: { title: 'Hợp đồng thuê nhà', body: 'Bản scan hợp đồng, hết hạn tháng 6 năm sau.', tags: ['giấy tờ', 'hợp đồng'], file: 'Hop-dong-thue-nha.pdf' },
+        lease: { title: 'Hợp đồng thuê nhà', body: 'Bản scan hợp đồng, có chữ ký của chủ nhà và cả nhà.', tags: ['giấy tờ', 'hợp đồng'], file: 'Hop-dong-thue-nha.pdf' },
         meter: { title: 'Chỉ số đồng hồ điện', body: 'Chụp ngày cuối kỳ để đối chiếu hoá đơn.', tags: ['điện'], file: 'dong-ho-dien.png' },
         secret: { title: 'Quà sinh nhật Linh 🤫', body: 'Mục riêng tư — chỉ Tom thấy. Tai nghe, đặt trước ngày 20.', tags: ['riêng'] },
+        bond: { title: 'Tiền cọc nhà', body: 'Đã cọc 2 tháng tiền nhà, hoàn lại khi trả nhà.', amount: 9_000_000 },
+        recipe: { title: 'Phở bò của Bảo', body: 'Khẩu phần: 4 người\nNguyên liệu:\n- 500 g bánh phở\n- 400 g thịt bò\n- Hành, gừng, quế, hồi\n\nCách làm:\n1. Nướng hành gừng, ninh xương 3 tiếng.\n2. Trụng bánh, xếp thịt, chan nước dùng.', tags: ['món nước'] },
+        contact: { title: 'Chú Hùng – chủ nhà', body: 'Điện thoại: 0903 000 777\nLiên hệ khi: hỏng điện nước, gia hạn hợp đồng.' },
       },
     };
   }
@@ -91,9 +94,12 @@ function content(lang: DemoLang, now: Date) {
       wifi: { title: 'Home Wi‑Fi', body: 'Network: HouseNo7\nPassword: welcome2026\nThe router is on the living-room shelf.', tags: ['wifi', 'home'] },
       trash: { title: 'Bin days', body: 'Monday and Thursday: general waste, out by 7 pm.\nSaturday: recycling (paper, plastic bottles).', tags: ['chores'] },
       rules: { title: 'House rules', body: '1. Wash up right after eating.\n2. Overnight guests: say so in the chat first.\n3. Quiet after 11 pm.', tags: ['home'] },
-      lease: { title: 'Tenancy agreement', body: 'Scanned copy, ends next June.', tags: ['documents', 'lease'], file: 'Tenancy-agreement.pdf' },
+      lease: { title: 'Tenancy agreement', body: 'Scanned copy, signed by the landlord and all of us.', tags: ['documents', 'lease'], file: 'Tenancy-agreement.pdf' },
       meter: { title: 'Electricity meter reading', body: 'Taken at the end of the period to check the bill.', tags: ['power'], file: 'meter.png' },
       secret: { title: 'Ella’s birthday present 🤫', body: 'Private — only Tom sees this. Headphones, order before the 20th.', tags: ['private'] },
+      bond: { title: 'Bond', body: 'Four weeks’ rent, paid back when we move out.', amount: 1800 },
+      recipe: { title: 'Nolan’s pasta bake', body: 'Serves: 4\nIngredients:\n- 400 g penne\n- 1 jar tomato sauce\n- 200 g mozzarella\n\nSteps:\n1. Boil the pasta.\n2. Mix with sauce, top with cheese, bake 20 min at 200 °C.', tags: ['dinner'] },
+      contact: { title: 'Mr Hughes – landlord', body: 'Phone: 0400 000 777\nWhat for: repairs, renewing the lease.' },
     },
   };
 }
@@ -156,9 +162,16 @@ export async function seedDemo(base: string, lang: DemoLang = 'vi', now = new Da
   const L = c.library;
   await item(tom, { kind: 'note', ...L.wifi });
   await item(bao, { kind: 'note', ...L.trash });
-  await item(tom, { kind: 'note', ...L.rules });
+  await item(tom, { kind: 'note', ...L.rules, collection: 'house_rules' });
   const pdf = await upload(tom, leasePdf(L.lease.title), L.lease.file);
-  await item(tom, { kind: 'document', title: L.lease.title, body: L.lease.body, tags: L.lease.tags, attachmentIds: [pdf.id] });
+  // The lease ends in 25 days, so the reminder shows straight away.
+  await item(tom, {
+    kind: 'document', title: L.lease.title, body: L.lease.body, tags: L.lease.tags, attachmentIds: [pdf.id],
+    collection: 'rental', docType: 'lease', date: iso(new Date(now.getTime() - 340 * day)), expiresOn: iso(new Date(now.getTime() + 25 * day)),
+  });
+  await item(tom, { kind: 'note', ...L.bond, collection: 'rental', docType: 'deposit', date: iso(new Date(now.getTime() - 340 * day)) });
+  await item(bao, { kind: 'note', ...L.recipe, collection: 'recipes' });
+  await item(tom, { kind: 'note', ...L.contact, collection: 'contacts' });
   const meter = await upload(linh, meterPng(), L.meter.file);
   await item(linh, { kind: 'photo', title: L.meter.title, body: L.meter.body, tags: L.meter.tags, attachmentIds: [meter.id] });
   await item(tom, { kind: 'note', ...L.secret, private: true });

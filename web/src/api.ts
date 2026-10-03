@@ -145,8 +145,17 @@ export interface Message {
   createdAt: string;
 }
 
+export const COLLECTIONS = ['recipes', 'wishlist', 'shopping', 'contacts', 'house_rules', 'rental'] as const;
+export type Collection = (typeof COLLECTIONS)[number];
+export const RENTAL_DOCS = ['lease', 'deposit', 'condition_report', 'receipt', 'repair', 'other'] as const;
+
 export interface Item {
   id: string;
+  collection: Collection | null;
+  docType: (typeof RENTAL_DOCS)[number] | null;
+  date: string | null;
+  expiresOn: string | null;
+  amount: number | null;
   kind: 'note' | 'document' | 'photo' | 'link';
   title: string;
   body: string;

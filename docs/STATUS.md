@@ -1,0 +1,50 @@
+# MATE: tính năng nào là thật?
+
+Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc video. Cập nhật đến giai đoạn 4.
+
+- **Thật:** đã chạy trên bản Render, có kiểm thử tự động (máy chủ và trình duyệt thật). Dùng được ngay với dữ liệu thật.
+- **Bản thử:** chạy được nhưng còn đơn giản, hoặc chỉ mới làm một phần.
+- **Ý tưởng:** chưa làm. Không có trong app, hoặc nếu có thì ghi rõ "sắp có".
+
+## Thật
+
+| Nhóm | Tính năng |
+|---|---|
+| Tài khoản | Đăng ký, đăng nhập; mật khẩu băm scrypt; chống thử mật khẩu theo IP, theo cặp IP + email, và theo email (từ nhiều địa chỉ) |
+| Vào nhà | Không tự tạo nhà sau đăng ký. Hai lựa chọn: vào bằng link/mã, hoặc tạo nhà mới |
+| Thư mời | Link riêng cho từng người, dùng một lần, có vai trò, hạn 7 ngày, huỷ được |
+| Mã nhà | 8 ký tự, chỉ để xin vào; sai 10 lần thì khoá 15 phút |
+| Duyệt người mới | Bật mặc định. Chủ nhà hoặc quản lý đồng ý (chọn vai trò) hoặc từ chối. Người xin được báo kết quả |
+| Hộp thư nhà | Số thư chưa đọc; yêu cầu xin vào; thư mời đã gửi và trạng thái; ai vào, rời, bị gỡ, đổi vai trò |
+| Vai trò | Chủ nhà, Quản lý, Người ở, Khách (có hạn 1–90 ngày). Luôn còn ít nhất một chủ nhà. Chuyển quyền chủ nhà |
+| Nhật ký nhà | Chủ nhà xem mọi thay đổi về người và quyền |
+| Rời / gỡ / xoá nhà | Có xác nhận. Nhà trống của riêng mình thì xoá được |
+| Chat | Chữ và ảnh, đến ngay (SSE). Tự ngắt sau 3 phút không dùng, tự nối lại và tải tin bị lỡ |
+| Thư viện | Ghi chú, ảnh, tài liệu PDF; nhãn; mục riêng tư; tìm không dấu |
+| Bộ sưu tập | Công thức, mong muốn, mua sắm, danh bạ, nội quy, hồ sơ thuê nhà; có mẫu sẵn và trạng thái trống |
+| Hồ sơ thuê nhà | Loại giấy tờ (hợp đồng, cọc, biên bản, biên lai, sửa chữa), ngày, ngày hết hạn, số tiền |
+| Nhắc hết hạn | Trong app: banner "sắp hết hạn" 30 ngày trước, nhãn đỏ khi đã hết hạn |
+| Tìm và lọc | Theo chữ (kể cả ngày, số tiền), bộ sưu tập, loại, nhãn, kết hợp được |
+| Hoá đơn | Dán chữ hoặc chụp ảnh → tách số tiền, hạn, kỳ (en, vi, fr, de, nl); chia đều; ai nợ ai; đánh dấu đã trả |
+| Riêng tư | Mục riêng chỉ người tạo thấy; khách không thấy hoá đơn và mục riêng; người lạ nhận "không tìm thấy" |
+| Xuất dữ liệu | Chủ nhà tải toàn bộ nhà thành .zip (data.json + ảnh, tài liệu). Không gồm mục riêng của người khác |
+| Hướng dẫn lần đầu | 4 bước, dùng tốt trên điện thoại, bỏ qua được, xem lại được |
+| Ngôn ngữ | Tiếng Anh, Việt, Pháp, Đức, Hà Lan; thông báo lỗi dễ hiểu (có kiểm thử bảo đảm mọi lỗi đều có câu dịch) |
+| Chạy thử trên máy | `npm run try`: một nhà mẫu, 4 tài khoản |
+
+## Bản thử (nói rõ khi giới thiệu)
+
+| Tính năng | Giới hạn hiện tại |
+|---|---|
+| Nhắc hết hạn | Chỉ hiện khi mở app. **Chưa** gửi email hay thông báo đẩy |
+| Đọc hoá đơn từ ảnh | Chạy ngay trên điện thoại, chưa dùng AI; ảnh mờ hoặc hoá đơn lạ có thể đọc sai, người dùng kiểm tra lại trước khi lưu |
+| Khách hết hạn | Bị gỡ khi có người mở app lần kế tiếp, không đúng phút |
+| Dung lượng | Mỗi nhà 50 MB ảnh và tài liệu (gói miễn phí của Neon) |
+| Máy chủ miễn phí (Render) | Ngủ sau 15 phút không ai dùng; lần mở đầu chờ khoảng 30–60 giây |
+
+## Ý tưởng (chưa làm, không có trong app)
+
+- Phía chủ nhà cho thuê: hồ sơ thuê nhà hiện là nền dữ liệu cho phần này; chưa có tài khoản hay màn hình cho chủ nhà cho thuê.
+- Kết nối Gmail để tự đọc hoá đơn và bưu kiện từ email.
+- Bưu kiện, dùng khi mất mạng, thông báo đẩy.
+- Trợ lý AI trong nhà ("butler").

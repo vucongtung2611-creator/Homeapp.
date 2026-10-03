@@ -1,7 +1,7 @@
 // Real-browser walkthrough with two people on phone-sized screens.
 // Usage: BASE_URL=http://localhost:3000 SHOTS=./shots node scripts/e2e.mjs
 // Needs Playwright (NODE_PATH pointing at a global install is fine).
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, devices } from 'playwright';
 
@@ -19,9 +19,10 @@ const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: p
 const phone = { ...devices['iPhone 13'], locale: 'vi-VN', timezoneId: 'Asia/Ho_Chi_Minh', defaultBrowserType: undefined };
 delete phone.defaultBrowserType;
 
-async function person(label) {
+async function person(label, { tour = false } = {}) {
   const context = await browser.newContext({ ...phone, permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await context.newPage();
+  if (!tour) await skipTour(page);
   page.on('console', (m) => m.type() === 'error' && problems.push(`[${label} console] ${m.text()}`));
   page.on('pageerror', (e) => problems.push(`[${label} pageerror] ${e.message}`));
   page.on('dialog', (d) => d.accept());
@@ -30,6 +31,11 @@ async function person(label) {
 const waitCount = (page, n, msg) =>
   page.waitForFunction((n) => document.querySelectorAll('.list-item').length === n, n, { timeout: 5000 }).catch(() => {
     throw new Error(`Expectation failed: ${msg}`);
+  });
+/** The first-time guide covers the screen; tests that aren't about it just skip it. */
+const skipTour = (page) =>
+  page.addLocatorHandler(page.getByTestId('tour'), async () => {
+    await page.getByTestId('tour').getByRole('button').first().click();
   });
 const shot = (page, name) => page.screenshot({ path: join(SHOTS, `${name}.png`), animations: 'disabled' });
 
@@ -80,7 +86,7 @@ try {
   }
 
   // ── 1. Linh signs up and creates a home ──────────────────────────────
-  const linh = await person('linh');
+  const linh = await person('linh', { tour: true });
   let p = linh.page;
   await p.goto(BASE);
   await p.getByRole('heading', { name: 'MATE' }).waitFor();
@@ -101,6 +107,16 @@ try {
   await p.getByRole('heading', { name: 'Tạo nhà của bạn' }).waitFor();
   await p.getByLabel('Tên nhà').fill('Nhà 12 Lê Lợi');
   await p.getByRole('button', { name: 'Tạo nhà' }).click();
+  // First time in a home: a four-card guide, then the chat.
+  await p.getByTestId('tour').getByRole('heading', { name: 'Chat với cả nhà' }).waitFor();
+  await shot(p, '03a-tour');
+  for (const title of ['Cất những thứ cần dùng', 'Chia hoá đơn công bằng', 'Hộp thư của nhà']) {
+    await p.getByRole('button', { name: 'Tiếp' }).click();
+    await p.getByTestId('tour').getByRole('heading', { name: title }).waitFor();
+  }
+  await p.getByRole('button', { name: 'Bắt đầu' }).click();
+  await expect((await p.getByTestId('tour').count()) === 0, 'guide closed');
+  await skipTour(p); // in case it is asked for again later
   await p.getByText('Chào mừng về nhà!').waitFor();
   await shot(p, '03-chat-welcome');
   step('signup + create home → chat with welcome message');
@@ -269,6 +285,22 @@ try {
   await p.getByRole('button', { name: 'Đóng' }).click();
   step('tag filter + item detail');
 
+  // Shelves: an empty shelf invites you in; a rental record with an expiry shows a reminder.
+  await p.getByRole('button', { name: 'Tất cả', exact: true }).click();
+  await p.getByTestId('shelves').getByRole('button', { name: /Hồ sơ thuê nhà/ }).click();
+  await p.getByRole('heading', { name: 'Chưa có hồ sơ thuê nhà' }).waitFor();
+  await p.getByRole('button', { name: 'Thêm vào Hồ sơ thuê nhà' }).click();
+  await p.locator('input[name=title]').fill('Hợp đồng thuê 2026');
+  const soon = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+  await p.locator('input[name=expiresOn]').fill(soon);
+  await p.locator('input[name=amount]').fill('8500000');
+  await p.getByRole('button', { name: 'Lưu' }).click();
+  await p.locator('.list-item', { hasText: 'Hợp đồng thuê 2026' }).getByText('còn 10 ngày').waitFor();
+  await p.getByRole('button', { name: 'Bỏ lọc Hồ sơ thuê nhà' }).click();
+  await p.getByTestId('expiring').getByText('Hợp đồng thuê 2026 (còn 10 ngày)').waitFor();
+  await shot(p, '11b-shelves');
+  step('shelves: empty rental shelf → added a lease with an expiry → reminder banner');
+
   // ── 6. Bills: paste → parse → split → pay → who owes whom ────────────
   await p.getByRole('link', { name: 'Hóa đơn' }).click();
   await p.getByRole('heading', { name: 'Ai nợ ai' }).waitFor();
@@ -322,6 +354,7 @@ try {
 
   // ── 7. Bill photo → on-device OCR ────────────────────────────────────
   const billPage = await linh.context.newPage();
+  await skipTour(billPage);
   await billPage.setViewportSize({ width: 900, height: 700 });
   await billPage.setContent(`<html><body style="margin:0;background:#fff;font:34px/1.6 Arial,sans-serif;padding:40px">
     <div><b>CÔNG TY CẤP NƯỚC</b></div><div>HÓA ĐƠN TIỀN NƯỚC</div>
@@ -341,6 +374,17 @@ try {
   await expect(ocrDue === '2026-10-20', `OCR due date (got ${ocrDue})`);
   step(`photo OCR on device in ${((Date.now() - ocrStart) / 1000).toFixed(1)} s → ${ocrAmount} đ, due ${ocrDue}`);
   await p.getByRole('button', { name: 'Đóng' }).click();
+
+  // ── 7b. The owner downloads everything ───────────────────────────────
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  const [download] = await Promise.all([p.waitForEvent('download'), p.getByTestId('export').click()]);
+  const zipPath = join(SHOTS, 'export.zip');
+  await download.saveAs(zipPath);
+  const zipBytes = readFileSync(zipPath);
+  await expect(zipBytes.readUInt32LE(0) === 0x04034b50 && zipBytes.includes('data.json'), 'a ZIP with data.json');
+  await expect(/^mate-nha-12-le-loi-\d{4}-\d{2}-\d{2}\.zip$/.test(download.suggestedFilename()), `file name (${download.suggestedFilename()})`);
+  step(`owner downloaded the whole home: ${download.suggestedFilename()} (${Math.round(zipBytes.length / 1024)} KB)`);
+  await p.getByRole('link', { name: 'Chat' }).click();
 
   // ── 8. States: error + sign out ──────────────────────────────────────
   await linh.context.setOffline(true);
@@ -364,6 +408,7 @@ try {
   ]) {
     const ctx = await browser.newContext({ ...phone, locale: region, timezoneId: 'Europe/Amsterdam' });
     const page = await ctx.newPage();
+    await skipTour(page);
     page.on('pageerror', (e) => problems.push(`[${locale} pageerror] ${e.message}`));
     page.on('console', (m) => m.type() === 'error' && problems.push(`[${locale} console] ${m.text()}`));
     await page.goto(`${BASE}/signup`);

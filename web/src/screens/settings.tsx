@@ -6,6 +6,7 @@ import { LanguageSwitch } from '../language.js';
 import { navigate, type Session } from '../router.js';
 import { Spinner, toast, toastError, useLoad } from '../ui.js';
 import { roleLabel } from '../util.js';
+import { replayTour } from '../tour.js';
 
 export function SettingsScreen({ home, session, reloadHome }: { home: Household; session: Session; reloadHome: () => void }) {
   const [busy, setBusy] = useState<string>();
@@ -66,6 +67,16 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
       <section class="card">
         <LanguageSwitch block />
       </section>
+      <button
+        class="btn block ghost"
+        style={{ marginTop: 8 }}
+        onClick={() => {
+          if (session.user) replayTour(session.user.id);
+          navigate(`/h/${home.id}/chat`);
+        }}
+      >
+        {t('tour.replay')}
+      </button>
 
       {isOwner && home.hasSamples && (
         <>
@@ -519,6 +530,12 @@ function Members({ home, reloadHome }: { home: Household; reloadHome: () => void
             <button class="btn block secondary" onClick={() => navigate(`/h/${home.id}/log`)}>
               {t('log.open')}
             </button>
+            <a class="btn block secondary" href={`/api/households/${home.id}/export`} download data-testid="export">
+              {t('settings.export')}
+            </a>
+            <p class="hint" style={{ margin: 0 }}>
+              {t('settings.exportHint')}
+            </p>
             {candidates.length > 0 && (
               <>
                 <p class="muted">{t('settings.transferText')}</p>

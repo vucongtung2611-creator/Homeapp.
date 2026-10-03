@@ -52,8 +52,10 @@ Cả bốn người ở chung **Nhà số 7**.
 - Thông báo tự động khi có hoá đơn mới hoặc có người trả tiền.
 
 **Thư viện**
-- Wi‑Fi, lịch đổ rác, nội quy nhà.
-- Hợp đồng thuê nhà (PDF) và ảnh đồng hồ điện.
+- Các bộ sưu tập: công thức nấu ăn, danh sách mong muốn, mua sắm, danh bạ, nội quy nhà, hồ sơ thuê nhà.
+- Wi‑Fi, lịch đổ rác, nội quy nhà, công thức phở của Bảo, số điện thoại chủ nhà.
+- **Hồ sơ thuê nhà:** hợp đồng (PDF, hết hạn sau 25 ngày nên app hiện nhắc) và tiền cọc.
+- Ảnh đồng hồ điện.
 - Một ghi chú **riêng tư** của Tom: "Quà sinh nhật Linh". Chỉ Tom thấy; đăng nhập bằng Linh để kiểm tra.
 
 **Hoá đơn**
@@ -62,6 +64,11 @@ Cả bốn người ở chung **Nhà số 7**.
 - Tiền Internet chưa trả.
 - Một lần đi chợ chung.
 - Mục **Ai nợ ai**.
+
+**Hộp thư, vai trò, nhật ký** (đăng nhập bằng Tom)
+- Biểu tượng hộp thư cạnh ⚙️: ai đã vào nhà, thư mời đã gửi.
+- ⚙️ Cài đặt: đổi vai trò từng người (Quản lý, Khách…), nhật ký nhà, tải toàn bộ dữ liệu (.zip).
+- Lần đầu vào nhà có hướng dẫn nhanh 4 bước; xem lại ở ⚙️ → "Xem lại hướng dẫn nhanh".
 
 ## Mẹo quay video
 

@@ -23,7 +23,9 @@ async function person(name) {
     if (!res.ok()) throw new Error(`${method} ${path} → ${res.status()} ${await res.text()}`);
     return res.json();
   };
-  await call('POST', '/api/auth/signup', { email: `${name}-${run}@example.com`, password: 'idle-test-password', name });
+  const { user } = await call('POST', '/api/auth/signup', { email: `${name}-${run}@example.com`, password: 'idle-test-password', name });
+  // This test is about the live connection, not the first-time guide.
+  await page.addInitScript((id) => localStorage.setItem(`homeapp:tour-done:${id}`, '1'), user.id);
   return { context, page, call };
 }
 const live = (page, state, timeout = 10_000) =>

@@ -53,6 +53,12 @@ const SPACE_DOMAIN: Record<Space, Domain> = {
 
 export const MAX_TAGS = 12;
 
+/** Ready-made shelves in the Library; an item belongs to at most one. */
+export const COLLECTIONS = ['recipes', 'wishlist', 'shopping', 'contacts', 'house_rules', 'rental'] as const;
+export type Collection = (typeof COLLECTIONS)[number];
+/** Kinds of rental record: the base for the landlord side later. */
+export const RENTAL_DOCS = ['lease', 'deposit', 'condition_report', 'receipt', 'repair', 'other'] as const;
+
 /** Lower-case and strip Vietnamese diacritics so "hoa don" finds "Hóa đơn". */
 export function foldText(s: string): string {
   return s
@@ -144,7 +150,7 @@ export class Items {
   list(
     actorId: string,
     householdId: string,
-    query: { space?: Space; q?: string; tag?: string; kind?: ItemKind } = {},
+    query: { space?: Space; q?: string; tag?: string; kind?: ItemKind; collection?: Collection } = {},
   ): GraphNode<HouseItemProps>[] {
     const words = foldText(query.q ?? '').split(/\s+/).filter(Boolean);
     const tag = query.tag ? foldText(query.tag) : undefined;
@@ -152,11 +158,19 @@ export class Items {
       .visible<HouseItemProps>(actorId, householdId, 'item')
       .filter((n) => n.props.space === (query.space ?? 'library'))
       .filter((n) => !query.kind || n.props.kind === query.kind)
+      .filter((n) => !query.collection || n.props.attributes?.collection === query.collection)
       .filter((n) => !tag || n.props.tags.some((t) => foldText(t) === tag))
       .filter((n) => {
         if (words.length === 0) return true;
         const haystack = foldText(
-          [n.label, n.props.body ?? '', n.props.tags.join(' '), n.props.attachments.map((a) => a.name).join(' ')].join(' '),
+          [
+            n.label,
+            n.props.body ?? '',
+            n.props.tags.join(' '),
+            n.props.attachments.map((a) => a.name).join(' '),
+            // Dates, amounts and other details are searchable too ("2026-10", "850000").
+            Object.values(n.props.attributes ?? {}).filter((v) => typeof v === 'string' || typeof v === 'number').join(' '),
+          ].join(' '),
         );
         return words.every((w) => haystack.includes(w));
       })
@@ -175,6 +189,24 @@ export class Items {
       }
     }
     return [...counts.values()].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
+  /** How many items each collection holds, for the shelf cards. */
+  collections(actorId: string, householdId: string): Record<Collection, number> {
+    const counts = Object.fromEntries(COLLECTIONS.map((c) => [c, 0])) as Record<Collection, number>;
+    for (const item of this.list(actorId, householdId)) {
+      const c = item.props.attributes?.collection as Collection | undefined;
+      if (c && c in counts) counts[c]++;
+    }
+    return counts;
+  }
+
+  /** Items with an expiry date that has passed or falls within `days` of `today` (YYYY-MM-DD), soonest first. */
+  expiring(actorId: string, householdId: string, today: string, days = 30): GraphNode<HouseItemProps>[] {
+    const limit = new Date(Date.parse(today) + days * 86_400_000).toISOString().slice(0, 10);
+    return this.list(actorId, householdId)
+      .filter((n) => typeof n.props.attributes?.expiresOn === 'string' && (n.props.attributes.expiresOn as string) <= limit)
+      .sort((a, b) => String(a.props.attributes.expiresOn).localeCompare(String(b.props.attributes.expiresOn)));
   }
 
   /** Every item that references a file — used to decide who may download it. */

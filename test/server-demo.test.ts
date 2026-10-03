@@ -27,8 +27,8 @@ for (const lang of ['vi', 'en'] as const) {
     // The private note is only Tom's.
     const tomItems = (await tom.get(`/api/households/${hid}/items`)).data.items as unknown[];
     const otherItems = (await other.get(`/api/households/${hid}/items`)).data.items as unknown[];
-    assert.equal(tomItems.length, 6);
-    assert.equal(otherItems.length, 5);
+    assert.equal(tomItems.length, 9);
+    assert.equal(otherItems.length, 8);
 
     const money = (await tom.get(`/api/households/${hid}/money`)).data;
     assert.equal(money.bills.length, 2);

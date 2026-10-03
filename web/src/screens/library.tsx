@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api, upload, type Household, type Item, type UploadedFile } from '../api.js';
+import { api, COLLECTIONS, RENTAL_DOCS, upload, type Collection, type Household, type Item, type UploadedFile } from '../api.js';
 import { isImage, preparePhoto } from '../image.js';
 import type { Live } from '../router.js';
 import { EmptyState, ErrorState, Icon, Lightbox, Sheet, Skeleton, Spinner, Switch, toast, toastError, useLoad } from '../ui.js';
-import { formatDate, formatNumber, t, type MessageKey } from '../i18n/index.js';
+import { formatDate, formatMoney, formatNumber, t, type MessageKey } from '../i18n/index.js';
 import { Illustration, RoomArt } from '../illustrations.js';
-import { errorText } from '../util.js';
+import { errorText, todayIso } from '../util.js';
 
 type Kind = Item['kind'];
 const KIND_EMOJI: Record<Kind, string> = { note: '📝', photo: '🖼️', document: '📄', link: '🔗' };
+const SHELF_EMOJI: Record<Collection, string> = { recipes: '🍲', wishlist: '🎁', shopping: '🛒', contacts: '📇', house_rules: '📜', rental: '🏠' };
+const shelf = (c: Collection) => ({ emoji: SHELF_EMOJI[c], label: t(`library.collections.${c}` as MessageKey) });
+/** A new item on a shelf starts from a small template, so it's quick to fill in. */
+const template = (c?: Collection | null) => (c && c !== 'rental' ? t(`library.templates.${c}` as MessageKey) : '');
+const daysUntil = (iso: string) => Math.round((Date.parse(iso) - Date.parse(todayIso())) / 86_400_000);
+
 const KIND = new Proxy({} as Record<Kind, { label: string; emoji: string }>, {
   get: (_, k: string) => ({ label: t(`library.kinds.${k}` as MessageKey), emoji: KIND_EMOJI[k as Kind] }),
 });
@@ -18,8 +24,9 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState<string>();
   const [kind, setKind] = useState<Kind>();
+  const [collection, setCollection] = useState<Collection>();
   const [open, setOpen] = useState<Item>();
-  const [editing, setEditing] = useState<{ item?: Item; kind: Kind } | undefined>();
+  const [editing, setEditing] = useState<{ item?: Item; kind: Kind; collection?: Collection } | undefined>();
   const [choosing, setChoosing] = useState(false);
 
   useEffect(() => {
@@ -31,11 +38,22 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
   if (query) params.set('q', query);
   if (tag) params.set('tag', tag);
   if (kind) params.set('kind', kind);
+  if (collection) params.set('collection', collection);
+  params.set('today', todayIso());
   const data = useLoad(
-    () => api<{ items: Item[]; tags: { tag: string; count: number }[] }>('GET', `/api/households/${home.id}/items?${params}`),
-    [home.id, query, tag, kind],
+    () =>
+      api<{ items: Item[]; tags: { tag: string; count: number }[]; collections: Record<Collection, number>; expiring: Item[] }>(
+        'GET',
+        `/api/households/${home.id}/items?${params}`,
+      ),
+    [home.id, query, tag, kind, collection],
   );
-  useEffect(() => live.on((e) => (e.type === 'changed' && e.area === 'library') || e.type === 'resync' ? void data.reload(true) : undefined), [live, query, tag, kind]);
+  useEffect(
+    () => live.on((e) => (e.type === 'changed' && e.area === 'library') || e.type === 'resync' ? void data.reload(true) : undefined),
+    [live, query, tag, kind, collection],
+  );
+  const canAdd = home.me.role !== 'guest';
+  const addTo = (c: Collection) => setEditing({ kind: c === 'rental' ? 'document' : 'note', collection: c });
 
   // Keep an open item fresh after edits elsewhere.
   useEffect(() => {
@@ -45,7 +63,8 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
     }
   }, [data.data]);
 
-  const filtered = Boolean(query || tag || kind);
+  const filtered = Boolean(query || tag || kind || collection);
+  const clearFilters = () => (setKind(undefined), setTag(undefined), setCollection(undefined), setQ(''));
   const items = data.data?.items ?? [];
 
   return (
@@ -61,8 +80,37 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
           onInput={(e) => setQ(e.currentTarget.value)}
         />
       </div>
+      {!query && !collection && data.data && (
+        <div class="shelves" role="group" aria-label={t('library.collectionsLabel')} data-testid="shelves">
+          {COLLECTIONS.map((c) => (
+            <button class="shelf" key={c} onClick={() => setCollection(c)}>
+              <span class="emoji">{shelf(c).emoji}</span>
+              <span class="name">{shelf(c).label}</span>
+              <span class="count">{data.data!.collections[c] ? formatNumber(data.data!.collections[c]) : t('library.shelfEmpty')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!filtered && (data.data?.expiring.length ?? 0) > 0 && (
+        <div class="banner" role="status" data-testid="expiring">
+          <span>
+            ⏰ {t('library.expiringTitle', { count: data.data!.expiring.length })}{' '}
+            {data.data!.expiring.slice(0, 3).map((i, n) => (
+              <button key={i.id} class="link-btn" onClick={() => setOpen(i)}>
+                {n > 0 && ', '}
+                {i.title} ({expiryText(i.expiresOn!)})
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
       <div class="chips" role="group" aria-label={t('library.filters')}>
-        <button class="chip" aria-pressed={!kind && !tag} onClick={() => (setKind(undefined), setTag(undefined))}>
+        {collection && (
+          <button class="chip" aria-pressed="true" onClick={() => setCollection(undefined)} aria-label={t('library.clearCollection', { name: shelf(collection).label })}>
+            {shelf(collection).emoji} {shelf(collection).label} ✕
+          </button>
+        )}
+        <button class="chip" aria-pressed={!kind && !tag && !collection} onClick={clearFilters}>
           {t('library.all')}
         </button>
         {(['note', 'photo', 'document'] as Kind[]).map((k) => (
@@ -82,17 +130,41 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
       ) : data.error && !data.data ? (
         <ErrorState error={data.error} onRetry={() => data.reload()} />
       ) : items.length === 0 ? (
-        filtered ? (
-          <EmptyState art={<Illustration.search />} title={t('library.noResultsTitle')} text={t('library.noResultsText')} />
+        collection && !query && !tag && !kind ? (
+          <EmptyState
+            art={<span class="big-emoji">{shelf(collection).emoji}</span>}
+            title={t(`library.shelfEmptyTitle.${collection}` as MessageKey)}
+            text={t(`library.shelfEmptyText.${collection}` as MessageKey)}
+            action={
+              canAdd && (
+                <button class="btn" onClick={() => addTo(collection)}>
+                  {t('library.addToShelf', { name: shelf(collection).label })}
+                </button>
+              )
+            }
+          />
+        ) : filtered ? (
+          <EmptyState
+            art={<Illustration.search />}
+            title={t('library.noResultsTitle')}
+            text={t('library.noResultsText')}
+            action={
+              <button class="btn secondary" onClick={clearFilters}>
+                {t('library.clearFilters')}
+              </button>
+            }
+          />
         ) : (
           <EmptyState
             art={<RoomArt room="library" fallback="library" />}
             title={t('library.emptyTitle')}
             text={t('library.emptyText')}
             action={
-              <button class="btn" onClick={() => setChoosing(true)}>
-                {t('library.addFirst')}
-              </button>
+              canAdd && (
+                <button class="btn" onClick={() => setChoosing(true)}>
+                  {t('library.addFirst')}
+                </button>
+              )
             }
           />
         )
@@ -114,6 +186,16 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
                   <span class="meta">
                     {item.body ? item.body.split('\n')[0] : item.attachments.length ? t('library.files', { count: item.attachments.length }) : KIND[item.kind].label}
                   </span>
+                  {(item.collection || item.expiresOn) && (
+                    <span style={{ display: 'block', marginTop: 6 }}>
+                      {item.collection && (
+                        <span class="badge">
+                          {shelf(item.collection).emoji} {item.docType ? t(`library.docTypes.${item.docType}` as MessageKey) : shelf(item.collection).label}
+                        </span>
+                      )}{' '}
+                      {item.expiresOn && <ExpiryBadge iso={item.expiresOn} />}
+                    </span>
+                  )}
                   {item.tags.length > 0 && (
                     <span style={{ display: 'block', marginTop: 6 }}>
                       {item.tags.slice(0, 3).map((tag) => (
@@ -131,8 +213,8 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
         </ul>
       )}
 
-      {home.me.role !== 'guest' && (
-      <button class="fab" onClick={() => setChoosing(true)}>
+      {canAdd && (
+      <button class="fab" onClick={() => (collection ? addTo(collection) : setChoosing(true))}>
         <Icon.plus /> {t('common.add')}
       </button>
       )}
@@ -157,13 +239,29 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
               </button>
             ))}
           </div>
+          <h3 class="subhead">{t('library.orShelf')}</h3>
+          <div class="shelf-grid">
+            {COLLECTIONS.map((c) => (
+              <button
+                class="shelf"
+                key={c}
+                onClick={() => {
+                  setChoosing(false);
+                  addTo(c);
+                }}
+              >
+                <span class="emoji">{shelf(c).emoji}</span>
+                <span class="name">{shelf(c).label}</span>
+              </button>
+            ))}
+          </div>
         </Sheet>
       )}
       {open && !editing && (
         <ItemSheet
           item={open}
           onClose={() => setOpen(undefined)}
-          onEdit={() => setEditing({ item: open, kind: open.kind })}
+          onEdit={() => setEditing({ item: open, kind: open.kind, collection: open.collection ?? undefined })}
           onDeleted={() => {
             setOpen(undefined);
             void data.reload(true);
@@ -176,6 +274,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
           home={home}
           item={editing.item}
           kind={editing.kind}
+          collection={editing.collection}
           onClose={() => setEditing(undefined)}
           onSaved={(saved) => {
             setEditing(undefined);
@@ -227,6 +326,39 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
             <span class="muted">{t('library.size', { size: formatNumber(Math.max(1, Math.round(a.size / 1024))) })}</span>
           </a>
         ))}
+      {(item.collection || item.date || item.expiresOn) && (
+        <dl class="details">
+          {item.collection && (
+            <>
+              <dt>{t('library.shelf')}</dt>
+              <dd>
+                {shelf(item.collection).emoji} {shelf(item.collection).label}
+                {item.docType && ` · ${t(`library.docTypes.${item.docType}` as MessageKey)}`}
+              </dd>
+            </>
+          )}
+          {item.date && (
+            <>
+              <dt>{t('library.date')}</dt>
+              <dd>{formatDate(item.date, 'medium')}</dd>
+            </>
+          )}
+          {item.expiresOn && (
+            <>
+              <dt>{t('library.expiresOn')}</dt>
+              <dd>
+                {formatDate(item.expiresOn, 'medium')} <ExpiryBadge iso={item.expiresOn} />
+              </dd>
+            </>
+          )}
+          {item.amount !== null && (
+            <>
+              <dt>{t('library.amount')}</dt>
+              <dd>{formatMoney(item.amount, home.currency)}</dd>
+            </>
+          )}
+        </dl>
+      )}
       {item.body && <div class="card note-body">{item.body}</div>}
       {item.tags.length > 0 && (
         <p>
@@ -263,10 +395,15 @@ interface Pending {
   error?: string;
 }
 
-function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose: () => void; onSaved: (item: Item) => void }) {
+function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collection?: Collection; onClose: () => void; onSaved: (item: Item) => void }) {
   const { home, item } = props;
   const [title, setTitle] = useState(item?.title ?? '');
-  const [body, setBody] = useState(item?.body ?? '');
+  const [collection, setCollection] = useState<Collection | ''>(item?.collection ?? props.collection ?? '');
+  const [body, setBody] = useState(item?.body ?? template(props.collection));
+  const [docType, setDocType] = useState(item?.docType ?? 'lease');
+  const [date, setDate] = useState(item?.date ?? '');
+  const [expiresOn, setExpiresOn] = useState(item?.expiresOn ?? '');
+  const [amountText, setAmountText] = useState(item?.amount != null ? String(item.amount) : '');
   const [tags, setTags] = useState<string[]>(item?.tags ?? []);
   const [tagDraft, setTagDraft] = useState('');
   const [isPrivate, setPrivate] = useState(item?.private ?? false);
@@ -315,7 +452,19 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
     setBusy(true);
     setError('');
     try {
-      const payload: Record<string, unknown> = { title, body, tags: allTags, attachmentIds };
+      const payload: Record<string, unknown> = {
+        title,
+        body,
+        tags: allTags,
+        attachmentIds,
+        collection: collection || null,
+        date: date || null,
+        expiresOn: expiresOn || null,
+      };
+      if (collection === 'rental') {
+        payload.docType = docType;
+        payload.amount = amountText.trim() ? Number(amountText.replace(/[^\d.]/g, '')) : null;
+      }
       if (!item || item.canChangePrivacy) payload.private = isPrivate;
       const saved = item
         ? await api<Item>('PATCH', `/api/households/${home.id}/items/${item.id}`, payload)
@@ -374,6 +523,58 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
           </div>
         )}
         <label class="field">
+          <span>{t('library.shelf')}</span>
+          <select
+            class="input"
+            name="collection"
+            value={collection}
+            onChange={(e) => {
+              const next = e.currentTarget.value as Collection | '';
+              // Swap in the new shelf's template only while the text is still the untouched template.
+              if (!item && (body === '' || body === template(collection || null))) setBody(template(next || null));
+              setCollection(next);
+            }}
+          >
+            <option value="">{t('library.noShelf')}</option>
+            {COLLECTIONS.map((c) => (
+              <option key={c} value={c}>
+                {shelf(c).emoji} {shelf(c).label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {collection === 'rental' && (
+          <div class="grid2">
+            <label class="field">
+              <span>{t('library.docType')}</span>
+              <select class="input" name="docType" value={docType} onChange={(e) => setDocType(e.currentTarget.value as Item['docType'] & string)}>
+                {RENTAL_DOCS.map((d) => (
+                  <option key={d} value={d}>
+                    {t(`library.docTypes.${d}` as MessageKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label class="field">
+              <span>{t('library.amountOptional', { currency: home.currency })}</span>
+              <input class="input" name="amount" inputMode="decimal" value={amountText} onInput={(e) => setAmountText(e.currentTarget.value)} />
+            </label>
+          </div>
+        )}
+        {collection === 'rental' && (
+          <div class="grid2">
+            <label class="field">
+              <span>{t('library.date')}</span>
+              <input class="input" type="date" name="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />
+            </label>
+            <label class="field">
+              <span>{t('library.expiresOn')}</span>
+              <input class="input" type="date" name="expiresOn" value={expiresOn} onInput={(e) => setExpiresOn(e.currentTarget.value)} />
+              <p class="hint">{t('library.expiresHint')}</p>
+            </label>
+          </div>
+        )}
+        <label class="field">
           <span>{props.kind === 'note' ? t('library.body') : t('library.bodyOptional')}</span>
           <textarea class="input" name="body" value={body} onInput={(e) => setBody(e.currentTarget.value)} maxLength={20000} rows={props.kind === 'note' ? 6 : 3} />
         </label>
@@ -423,4 +624,14 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; onClose:
       </form>
     </Sheet>
   );
+}
+
+function expiryText(iso: string): string {
+  const d = daysUntil(iso);
+  return d < 0 ? t('library.expiredAgo', { count: -d }) : d === 0 ? t('library.expiresToday') : t('library.expiresIn', { count: d });
+}
+
+function ExpiryBadge({ iso }: { iso: string }) {
+  const d = daysUntil(iso);
+  return <span class={`badge ${d < 0 ? 'danger' : d <= 30 ? 'warn' : ''}`}>⏰ {d <= 30 ? expiryText(iso) : formatDate(iso, 'short')}</span>;
 }
