@@ -136,6 +136,15 @@ const vi: Messages = {
     progress: 'Bước {step}/{total}',
     replay: 'Xem lại hướng dẫn nhanh',
   },
+  accounts: {
+    switch: 'Chuyển',
+    add: 'Thêm tài khoản',
+    addTitle: 'Thêm tài khoản',
+    addLead: 'Đăng nhập thêm một tài khoản (ví dụ tài khoản thử nghiệm). Sau đó chuyển qua lại trong Cài đặt mà không cần đăng xuất.',
+    hint: 'Các tài khoản trên trình duyệt này — chạm để chuyển, không cần mật khẩu.',
+    removeAria: 'Đăng xuất {name} khỏi trình duyệt này',
+    removeConfirm: 'Đăng xuất {name} khỏi trình duyệt này?',
+  },
   create: {
     title: 'Tạo nhà của bạn',
     lead: 'Sau đó bạn sẽ có một link để mời mọi người vào.',
@@ -471,6 +480,7 @@ const vi: Messages = {
     nolan: { name: 'Nolan', initial: 'N', description: 'Tò mò, nhiều năng lượng và câu hỏi' },
   },
   errors: {
+    too_many_accounts: 'Trình duyệt này đã có 5 tài khoản. Hãy đăng xuất bớt một tài khoản.',
     field_too_long: 'Có ô quá dài. Hãy rút ngắn rồi thử lại.',
     field_required: 'Hãy điền ô còn trống.',
     field_invalid: 'Có thông tin chưa đúng. Kiểm tra lại rồi thử lại.',

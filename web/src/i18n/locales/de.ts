@@ -136,6 +136,15 @@ const de: Messages = {
     progress: 'Schritt {step} von {total}',
     replay: 'Kurzanleitung noch mal zeigen',
   },
+  accounts: {
+    switch: 'Wechseln',
+    add: 'Weiteres Konto hinzufügen',
+    addTitle: 'Konto hinzufügen',
+    addLead: 'Melde dich mit einem zweiten Konto an (zum Beispiel einem Testkonto). Danach wechselst du in den Einstellungen, ohne dich abzumelden.',
+    hint: 'Konten in diesem Browser — mit einem Tippen wechseln, ohne Passwort.',
+    removeAria: '{name} in diesem Browser abmelden',
+    removeConfirm: '{name} in diesem Browser abmelden?',
+  },
   create: {
     title: 'Dein Zuhause erstellen',
     lead: 'Danach bekommst du einen Link, um alle einzuladen.',
@@ -471,6 +480,7 @@ const de: Messages = {
     nolan: { name: 'Nolan', initial: 'N', description: 'Neugierig, voller Energie und Fragen' },
   },
   errors: {
+    too_many_accounts: 'In diesem Browser sind schon fünf Konten angemeldet. Melde zuerst eines ab.',
     field_too_long: 'Ein Feld ist zu lang. Kürze es und versuch es noch einmal.',
     field_required: 'Bitte füll das fehlende Feld aus.',
     field_invalid: 'Etwas im Formular stimmt nicht. Prüf es und versuch es noch einmal.',

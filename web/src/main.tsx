@@ -77,8 +77,10 @@ function Routes({ path, session }: { path: string; session: Session }) {
 
   if (parts[0] === 'join' && parts[1]) return <JoinScreen token={parts[1]} session={session} />;
   if (parts[0] === 'login' || parts[0] === 'signup') {
-    if (session.user) return <Redirect to={next ?? '/'} />;
-    return <AuthScreen mode={parts[0]} next={next} session={session} />;
+    // Signed in already: only shown when adding another account to this browser.
+    const adding = url.searchParams.get('add') === '1';
+    if (session.user && !adding) return <Redirect to={next ?? '/'} />;
+    return <AuthScreen mode={parts[0]} next={next} session={session} add={adding && Boolean(session.user)} />;
   }
   if (!session.user) {
     if (parts.length) return <Redirect to={`/login?next=${encodeURIComponent(url.pathname)}`} />;

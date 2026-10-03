@@ -27,6 +27,7 @@ export type Server = Awaited<ReturnType<typeof testServer>>;
 /** A browser-like client: keeps its session cookie and sends the CSRF header. */
 export class Client {
   cookie = '';
+  readonly jar = new Map<string, string>();
   constructor(private readonly server: Server) {}
 
   async req(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
@@ -41,11 +42,17 @@ export class Client {
       body: body === undefined ? undefined : body instanceof Uint8Array ? (body as unknown as BodyInit) : JSON.stringify(body),
     };
     const res = await this.server.app.request(`http://localhost${path}`, init);
-    const setCookie = res.headers.get('set-cookie');
-    if (setCookie) {
-      const sid = /sid=([^;]*)/.exec(setCookie)?.[1];
-      this.cookie = sid ? `sid=${sid}` : '';
+    // A tiny cookie jar: keeps every cookie the server sets, drops cleared ones.
+    const set = res.headers.getSetCookie();
+    for (const line of set) {
+      const [pair, ...attrs] = line.split(';');
+      const [name, ...v] = pair!.split('=');
+      const value = v.join('=');
+      const expired = !value || attrs.some((a) => /max-age=0|expires=thu, 01 jan 1970/i.test(a.trim()));
+      if (expired) this.jar.delete(name!.trim());
+      else this.jar.set(name!.trim(), value);
     }
+    if (set.length) this.cookie = [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ');
     const type = res.headers.get('content-type') ?? '';
     const data = type.includes('json') ? await res.json() : await res.arrayBuffer();
     return { status: res.status, data: data as any, headers: res.headers };

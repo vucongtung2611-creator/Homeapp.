@@ -94,8 +94,8 @@ export function WelcomeScreen() {
   );
 }
 
-export function AuthScreen(props: { mode: 'login' | 'signup'; next?: string; session: Session; compact?: boolean }) {
-  const [mode, setMode] = useState(props.mode);
+export function AuthScreen(props: { mode: 'login' | 'signup'; next?: string; session: Session; compact?: boolean; add?: boolean }) {
+  const [mode, setMode] = useState(props.add ? 'login' : props.mode);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -108,8 +108,11 @@ export function AuthScreen(props: { mode: 'login' | 'signup'; next?: string; ses
     setBusy(true);
     setError('');
     try {
-      if (mode === 'signup') await api('POST', '/api/auth/signup', { name, email, password, avatar });
-      else await api('POST', '/api/auth/login', { email, password });
+      const add = props.add || undefined;
+      if (mode === 'signup') await api('POST', '/api/auth/signup', { name, email, password, avatar, add });
+      else await api('POST', '/api/auth/login', { email, password, add });
+      // Adding an account: start clean in it (the other one stays one tap away in Settings).
+      if (props.add) return location.assign('/');
       await props.session.refresh();
       if (!props.compact) navigate(safeNext(props.next) ?? '/', true);
     } catch (err) {
@@ -180,9 +183,9 @@ export function AuthScreen(props: { mode: 'login' | 'signup'; next?: string; ses
 
   if (props.compact) return form;
   return (
-    <Frame back={() => navigate('/')}>
-      <h1>{mode === 'signup' ? t('auth.signupTitle') : t('auth.loginTitle')}</h1>
-      <p class="lead">{mode === 'signup' ? t('auth.signupLead') : t('auth.loginLead')}</p>
+    <Frame back={() => (props.add ? history.back() : navigate('/'))}>
+      <h1>{props.add ? t('accounts.addTitle') : mode === 'signup' ? t('auth.signupTitle') : t('auth.loginTitle')}</h1>
+      <p class="lead">{props.add ? t('accounts.addLead') : mode === 'signup' ? t('auth.signupLead') : t('auth.loginLead')}</p>
       {form}
     </Frame>
   );

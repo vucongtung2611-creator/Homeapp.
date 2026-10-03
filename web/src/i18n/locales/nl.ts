@@ -136,6 +136,15 @@ const nl: Messages = {
     progress: 'Stap {step} van {total}',
     replay: 'Snelle uitleg opnieuw tonen',
   },
+  accounts: {
+    switch: 'Wisselen',
+    add: 'Nog een account toevoegen',
+    addTitle: 'Account toevoegen',
+    addLead: 'Log in met een tweede account (bijvoorbeeld een testaccount). Daarna wissel je in Instellingen zonder uit te loggen.',
+    hint: 'Accounts in deze browser — wissel met één tik, zonder wachtwoord.',
+    removeAria: '{name} uitloggen in deze browser',
+    removeConfirm: '{name} uitloggen in deze browser?',
+  },
   create: {
     title: 'Maak je huis aan',
     lead: 'Daarna krijg je een link om iedereen uit te nodigen.',
@@ -471,6 +480,7 @@ const nl: Messages = {
     nolan: { name: 'Nolan', initial: 'N', description: 'Nieuwsgierig, vol energie en vragen' },
   },
   errors: {
+    too_many_accounts: 'Deze browser heeft al vijf ingelogde accounts. Log er eerst een uit.',
     field_too_long: 'Een van de velden is te lang. Maak het korter en probeer opnieuw.',
     field_required: 'Vul het lege veld in.',
     field_invalid: 'Er klopt iets niet in het formulier. Controleer het en probeer opnieuw.',

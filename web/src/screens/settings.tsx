@@ -121,19 +121,15 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
 
       <h2 class="section-title">{t('settings.account')}</h2>
       <section class="card">
-        <p style={{ marginTop: 0 }}>
-          {session.user?.name}
-          <span class="muted" style={{ display: 'block', fontSize: 14 }}>
-            {session.user?.email}
-          </span>
-        </p>
+        <Accounts session={session} />
         <button
           class="btn block secondary"
+          style={{ marginTop: 8 }}
           onClick={() =>
             run('logout', async () => {
+              // Another account on this browser (if any) takes over; start fresh either way.
               await api('POST', '/api/auth/logout');
-              await session.refresh();
-              navigate('/', true);
+              location.assign('/');
             })
           }
         >
@@ -569,5 +565,65 @@ function Members({ home, reloadHome }: { home: Household; reloadHome: () => void
         </>
       )}
     </>
+  );
+}
+
+/** Accounts signed in on this browser: switch without signing out, add one, or remove one. */
+function Accounts({ session }: { session: Session }) {
+  type Account = { id: string; name: string; email: string; avatar: string; active: boolean };
+  const list = useLoad(() => api<{ accounts: Account[] }>('GET', '/api/accounts'), [session.user?.id]);
+  const [busy, setBusy] = useState<string>();
+  const switchTo = async (a: Account) => {
+    setBusy(a.id);
+    try {
+      await api('POST', '/api/accounts/switch', { userId: a.id });
+      location.assign('/');
+    } catch (err) {
+      toastError(err);
+      setBusy(undefined);
+    }
+  };
+  const forget = async (a: Account) => {
+    if (!confirm(t('accounts.removeConfirm', { name: a.name }))) return;
+    try {
+      await api('DELETE', `/api/accounts/${a.id}`);
+      list.reload(true);
+    } catch (err) {
+      toastError(err);
+    }
+  };
+  const accounts = list.data?.accounts ?? [];
+  return (
+    <div data-testid="accounts">
+      {accounts.map((a) => (
+        <div class="request" key={a.id}>
+          <CharacterAvatar id={a.avatar} size={36} mood="still" />
+          <span class="who">
+            {a.active ? t('common.youSuffix', { name: a.name }) : a.name}
+            <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+              {a.email}
+            </span>
+          </span>
+          {!a.active && (
+            <span class="actions">
+              <button class="btn small" disabled={busy === a.id} onClick={() => switchTo(a)}>
+                {t('accounts.switch')}
+              </button>
+              <button class="btn small ghost" aria-label={t('accounts.removeAria', { name: a.name })} onClick={() => forget(a)}>
+                ✕
+              </button>
+            </span>
+          )}
+        </div>
+      ))}
+      {accounts.length < 5 && (
+        <button class="btn block ghost" style={{ marginTop: 6 }} onClick={() => navigate('/login?add=1')}>
+          ＋ {t('accounts.add')}
+        </button>
+      )}
+      <p class="hint" style={{ margin: '4px 0 0' }}>
+        {t('accounts.hint')}
+      </p>
+    </div>
   );
 }

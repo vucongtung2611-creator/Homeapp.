@@ -209,6 +209,24 @@ try {
   await p.getByRole('link', { name: 'Chat' }).click();
   step('a 3-day guest got in after approval: chat and library only, no Bills, nothing to add');
 
+  // ── 3d. Two accounts on one browser: add An's, switch, switch back ──
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await p.getByRole('button', { name: '＋ Thêm tài khoản' }).click();
+  await p.getByRole('heading', { name: 'Thêm tài khoản' }).waitFor();
+  await p.getByLabel('Email').fill(`an-${run}@example.com`);
+  await p.getByLabel('Mật khẩu').fill('mat khau cua an');
+  await p.getByRole('button', { name: 'Tiếp tục' }).click();
+  await p.getByRole('heading', { name: 'Chat' }).waitFor();
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await p.getByTestId('accounts').getByText('An (bạn)').waitFor();
+  await shot(p, '05f-accounts');
+  await p.getByTestId('accounts').getByRole('button', { name: 'Chuyển' }).click();
+  await p.getByRole('heading', { name: 'Chat' }).waitFor();
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await p.getByTestId('accounts').getByText('Linh (bạn)').waitFor();
+  await p.getByRole('link', { name: 'Chat' }).click();
+  step('Linh added An’s account on the same browser and switched back and forth without signing out');
+
   // ── 4. Realtime chat ─────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Chat' }).click();
   await p.getByText('An đã vào nhà 🎉').waitFor({ timeout: 5000 });

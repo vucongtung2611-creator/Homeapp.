@@ -136,6 +136,15 @@ const fr: Messages = {
     progress: 'Étape {step} sur {total}',
     replay: 'Revoir le guide rapide',
   },
+  accounts: {
+    switch: 'Basculer',
+    add: 'Ajouter un compte',
+    addTitle: 'Ajouter un compte',
+    addLead: 'Connectez-vous à un deuxième compte (par exemple un compte de test). Basculez ensuite dans les Réglages sans vous déconnecter.',
+    hint: 'Comptes sur ce navigateur — basculez en un geste, sans mot de passe.',
+    removeAria: 'Déconnecter {name} de ce navigateur',
+    removeConfirm: 'Déconnecter {name} de ce navigateur ?',
+  },
   create: {
     title: 'Créer votre foyer',
     lead: 'Vous obtiendrez ensuite un lien pour inviter tout le monde.',
@@ -471,6 +480,7 @@ const fr: Messages = {
     nolan: { name: 'Nolan', initial: 'N', description: 'Curieux, plein d’énergie et de questions' },
   },
   errors: {
+    too_many_accounts: 'Ce navigateur a déjà cinq comptes connectés. Déconnectez-en un d’abord.',
     field_too_long: 'Un des champs est trop long. Raccourcissez-le et réessayez.',
     field_required: 'Remplissez le champ manquant.',
     field_invalid: 'Quelque chose ne va pas dans le formulaire. Vérifiez et réessayez.',

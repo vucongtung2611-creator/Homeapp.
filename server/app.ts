@@ -66,6 +66,9 @@ export interface ServerOptions {
 }
 
 const SESSION_COOKIE = 'sid';
+/** Other accounts signed in on this browser (session tokens, dot-separated), for quick switching. */
+const OTHERS_COOKIE = 'sids';
+const MAX_ACCOUNTS = 5;
 const INVITE_DAYS = 7;
 const CODE_DAYS = 30;
 const RESIDENT_ROLES: Role[] = ['owner', 'manager', 'family_member', 'tenant', 'child'];
@@ -254,15 +257,39 @@ export async function createServer(options: ServerOptions) {
     );
     hub.publish(householdId, { type: 'changed', area: 'inbox' });
   };
-  const startSession = async (c: Context, user: User) => {
+  const cookieOpts = (c: Context, expires?: Date) => ({ httpOnly: true, secure: isHttps(c), sameSite: 'Lax' as const, path: '/', expires });
+  const otherTokens = (c: Context) =>
+    (getCookie(c, OTHERS_COOKIE) ?? '')
+      .split('.')
+      .filter((t) => /^[A-Za-z0-9_-]{20,100}$/.test(t))
+      .slice(0, MAX_ACCOUNTS);
+  const setOthers = (c: Context, tokens: string[]) => {
+    if (tokens.length) setCookie(c, OTHERS_COOKIE, tokens.join('.'), cookieOpts(c, new Date(Date.now() + 30 * 86_400_000)));
+    else deleteCookie(c, OTHERS_COOKIE, { path: '/' });
+  };
+  /** Accounts on this browser other than the active one; stale sessions are dropped. */
+  const otherAccounts = async (c: Context, except?: string) => {
+    const out: { token: string; user: User }[] = [];
+    for (const token of otherTokens(c)) {
+      const user = await auth.userForSession(token);
+      if (user && user.id !== except && !out.some((o) => o.user.id === user.id)) out.push({ token, user });
+    }
+    return out;
+  };
+  /**
+   * Sign someone in. With `keep`, whoever was signed in stays available on
+   * this browser for quick switching (up to five accounts).
+   */
+  const startSession = async (c: Context<Env>, user: User, keep = false) => {
+    const current = getCookie(c, SESSION_COOKIE);
+    const currentUser = c.get('user');
+    let others = keep ? await otherAccounts(c, user.id) : [];
+    if (keep && current && currentUser && currentUser.id !== user.id) others = [{ token: current, user: currentUser }, ...others];
+    else if (current && !keep) await auth.destroySession(current);
+    if (others.length >= MAX_ACCOUNTS) throw bad('too_many_accounts');
     const { token, expiresAt } = await auth.createSession(user.id);
-    setCookie(c, SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: isHttps(c),
-      sameSite: 'Lax',
-      path: '/',
-      expires: expiresAt,
-    });
+    setCookie(c, SESSION_COOKIE, token, cookieOpts(c, expiresAt));
+    if (keep) setOthers(c, others.map((o) => o.token));
   };
   const origin = (c: Context) => options.publicUrl ?? `${isHttps(c) ? 'https' : 'http'}://${requestHost(c)}`;
 
@@ -276,8 +303,10 @@ export async function createServer(options: ServerOptions) {
   app.post('/api/auth/signup', async (c) => {
     limit(limits.signup, ip(c));
     const data = await body(c);
+    // Check there's room for another account on this browser before creating one.
+    if (data.add === true && c.get('user') && (await otherAccounts(c, c.get('user')!.id)).length + 1 >= MAX_ACCOUNTS) throw bad('too_many_accounts');
     const user = await auth.signup({ email: data.email, password: data.password, name: data.name, avatar: data.avatar });
-    await startSession(c, user);
+    await startSession(c, user, data.add === true);
     return c.json({ user }, 201);
   });
 
@@ -287,15 +316,56 @@ export async function createServer(options: ServerOptions) {
     limit(limits.login, `${ip(c)}|${String(data.email ?? '').toLowerCase()}`);
     limit(limits.loginEmail, String(data.email ?? '').trim().toLowerCase());
     const user = await auth.login({ email: data.email, password: data.password });
-    await startSession(c, user);
+    await startSession(c, user, data.add === true);
     return c.json({ user });
   });
 
+  // ── Several accounts on one browser ──────────────────────────────────
+  app.get('/api/accounts', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ accounts: [] });
+    const others = await otherAccounts(c, user.id);
+    return c.json({ accounts: [{ ...user, active: true }, ...others.map((o) => ({ ...o.user, active: false }))] });
+  });
+
+  app.post('/api/accounts/switch', async (c) => {
+    const current = getCookie(c, SESSION_COOKIE);
+    const currentUser = requireUser(c);
+    const to = String((await body(c)).userId ?? '');
+    const others = await otherAccounts(c, currentUser.id);
+    const target = others.find((o) => o.user.id === to);
+    if (!target) throw new HttpError(404, 'not_found');
+    // Swap: the chosen account becomes active, the current one waits in the list.
+    setCookie(c, SESSION_COOKIE, target.token, cookieOpts(c, new Date(Date.now() + 30 * 86_400_000)));
+    setOthers(c, [current!, ...others.filter((o) => o !== target).map((o) => o.token)]);
+    return c.json({ user: target.user });
+  });
+
+  /** Sign one account out of this browser without touching the active one. */
+  app.delete('/api/accounts/:uid', async (c) => {
+    const currentUser = requireUser(c);
+    const others = await otherAccounts(c, currentUser.id);
+    const target = others.find((o) => o.user.id === c.req.param('uid'));
+    if (!target) throw new HttpError(404, 'not_found');
+    await auth.destroySession(target.token);
+    setOthers(c, others.filter((o) => o !== target).map((o) => o.token));
+    return c.json({ ok: true });
+  });
+
+  /** Sign out the active account; another account on this browser, if any, takes over. */
   app.post('/api/auth/logout', async (c) => {
     const token = getCookie(c, SESSION_COOKIE);
     if (token) await auth.destroySession(token);
+    const others = await otherAccounts(c, c.get('user')?.id);
+    const [next, ...rest] = others;
+    if (next) {
+      setCookie(c, SESSION_COOKIE, next.token, cookieOpts(c, new Date(Date.now() + 30 * 86_400_000)));
+      setOthers(c, rest.map((o) => o.token));
+      return c.json({ ok: true, switchedTo: next.user });
+    }
     deleteCookie(c, SESSION_COOKIE, { path: '/' });
-    return c.json({ ok: true });
+    deleteCookie(c, OTHERS_COOKIE, { path: '/' });
+    return c.json({ ok: true, switchedTo: null });
   });
 
   app.patch('/api/me', async (c) => {

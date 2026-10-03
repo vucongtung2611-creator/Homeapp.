@@ -139,6 +139,15 @@ const en = {
     progress: 'Step {step} of {total}',
     replay: 'Show the quick guide again',
   },
+  accounts: {
+    switch: 'Switch',
+    add: 'Add another account',
+    addTitle: 'Add an account',
+    addLead: 'Sign in to a second account (for example a test account). You can switch between them in Settings without signing out.',
+    hint: 'Accounts on this browser — switch with one tap, no password needed.',
+    removeAria: 'Sign {name} out of this browser',
+    removeConfirm: 'Sign {name} out of this browser?',
+  },
   create: {
     title: 'Create your home',
     lead: 'Next you’ll get a link to invite everyone.',
@@ -474,6 +483,7 @@ const en = {
     nolan: { name: 'Nolan', initial: 'N', description: 'Curious, full of energy and questions' },
   },
   errors: {
+    too_many_accounts: 'This browser already has five accounts signed in. Sign one out first.',
     field_too_long: 'One of the fields is too long. Shorten it and try again.',
     field_required: 'Please fill in the missing field.',
     field_invalid: 'Something isn’t quite right in the form. Check it and try again.',

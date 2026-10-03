@@ -1,6 +1,6 @@
 # MATE: tính năng nào là thật?
 
-Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc video. Cập nhật đến giai đoạn 4.
+Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc video. Cập nhật đến đợt phản hồi A–G.
 
 - **Thật:** đã chạy trên bản Render, có kiểm thử tự động (máy chủ và trình duyệt thật). Dùng được ngay với dữ liệu thật.
 - **Bản thử:** chạy được nhưng còn đơn giản, hoặc chỉ mới làm một phần.
@@ -11,6 +11,7 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 | Nhóm | Tính năng |
 |---|---|
 | Tài khoản | Đăng ký, đăng nhập; mật khẩu băm scrypt; chống thử mật khẩu theo IP, theo cặp IP + email, và theo email (từ nhiều địa chỉ) |
+| Nhiều tài khoản trên một máy | Tối đa 5 tài khoản trên một trình duyệt; ⚙️ → Chuyển (không cần mật khẩu, không cần đăng xuất); thêm hoặc đăng xuất từng tài khoản |
 | Vào nhà | Không tự tạo nhà sau đăng ký. Hai lựa chọn: vào bằng link/mã, hoặc tạo nhà mới |
 | Thư mời | Link riêng cho từng người, dùng một lần, có vai trò, hạn 7 ngày, huỷ được |
 | Mã nhà | 8 ký tự, chỉ để xin vào; sai 10 lần thì khoá 15 phút |
