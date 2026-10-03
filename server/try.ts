@@ -6,16 +6,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from './app.js';
 import { DEMO_PASSWORD, seedDemo, type DemoLang } from './demo.js';
+import { seedFamily } from './demo-family.js';
 
 // Try MATE on your own computer with a ready-made home — nothing goes online.
 //   npm run try              Vietnamese demo data
 //   npm run try -- --en      English demo data
+//   npm run try -- --family  Williams House: three people with calendars, chores, Library and chats
 //   npm run try -- --keep    keep what you did last time instead of starting fresh
 // Data lives in ./demo-data and is wiped on each fresh start.
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const args = process.argv.slice(2);
 const lang: DemoLang = args.includes('--en') ? 'en' : 'vi';
 const keep = args.includes('--keep');
+const family = args.includes('--family');
 const dataDir = join(root, 'demo-data');
 const idleMinutes = Number(process.env.CHAT_IDLE_MINUTES) || 30; // long enough to film
 
@@ -35,8 +38,8 @@ async function listen(port: number): Promise<number> {
 const port = await listen(Number(process.env.PORT) || 3000);
 const local = `http://localhost:${port}`;
 
-let demo: Awaited<ReturnType<typeof seedDemo>> | undefined;
-if (!keep || !(await db.get('SELECT 1 AS ok FROM users LIMIT 1'))) demo = await seedDemo(local, lang);
+let demo: { home: string; people: { name: string; email: string }[] } | undefined;
+if (!keep || !(await db.get('SELECT 1 AS ok FROM users LIMIT 1'))) demo = family ? await seedFamily(local) : await seedDemo(local, lang);
 
 const lan = Object.values(networkInterfaces())
   .flat()

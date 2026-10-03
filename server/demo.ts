@@ -104,10 +104,10 @@ function content(lang: DemoLang, now: Date) {
   };
 }
 
-type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
+export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 /** A tiny HTTP client that keeps one person's session cookie. */
-class Client {
+export class Client {
   private cookie = '';
   constructor(
     private readonly base: string,
@@ -239,7 +239,7 @@ function png(width: number, height: number, pixel: (x: number, y: number) => [nu
   );
 }
 
-function pizzaPng() {
+export function pizzaPng() {
   const W = 480;
   const H = 360;
   const cx = 240;
@@ -262,7 +262,7 @@ function pizzaPng() {
   });
 }
 
-function meterPng() {
+export function meterPng() {
   // A meter face with a row of digit windows.
   return png(480, 360, (x, y) => {
     if (x < 60 || x > 420 || y < 50 || y > 310) return [214, 219, 224];
@@ -278,7 +278,7 @@ function meterPng() {
   });
 }
 
-function leasePdf(title: string) {
+export function leasePdf(title: string) {
   const ascii = title.normalize('NFD').replace(/[^\x20-\x7e]/g, '');
   const text = `BT /F1 22 Tf 60 760 Td (${ascii}) Tj ET BT /F1 12 Tf 60 720 Td (MATE demo document - not a real contract.) Tj ET`;
   const objects = [
