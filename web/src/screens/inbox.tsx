@@ -26,7 +26,7 @@ export interface InboxEvent {
 const EVENT_KINDS = [
   'invite_created', 'invite_revoked', 'code_created', 'code_revoked', 'approval_on', 'approval_off',
   'join_requested', 'request_declined', 'request_cancelled', 'member_joined', 'member_approved', 'member_left', 'member_removed',
-  'role_changed', 'owner_transferred', 'guest_expired',
+  'role_changed', 'owner_transferred', 'guest_expired', 'chat_renamed',
 ] as const;
 
 /** One line of the inbox, in the reader's language. */

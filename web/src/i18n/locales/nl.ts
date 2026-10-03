@@ -8,6 +8,7 @@ const nl: Messages = {
     tagline: 'Je dagelijkse maatje in huis.',
   },
   common: {
+    cancel: 'Annuleren',
     loading: 'Laden',
     retry: 'Opnieuw proberen',
     save: 'Opslaan',
@@ -118,7 +119,7 @@ const nl: Messages = {
     inviteUsed: 'Geaccepteerd door {name}',
     invitePending: 'Open · tot {date}',
     waitingBanner: { one: '# persoon wil erbij — open het postvak', other: '# personen willen erbij — open het postvak' },
-    event: { invite_created: '{actor} heeft een uitnodiging gemaakt voor {label} ({role})', invite_revoked: '{actor} heeft de uitnodiging voor {label} ingetrokken', code_created: '{actor} heeft een nieuwe huiscode gemaakt', code_revoked: '{actor} heeft de huiscode uitgezet', approval_on: '{actor} heeft goedkeuring voor nieuwe mensen aangezet', approval_off: '{actor} heeft goedkeuring voor nieuwe mensen uitgezet', join_requested_code: '{subject} vroeg met de huiscode om erbij te komen', join_requested_link: '{subject} gebruikte de uitnodiging voor {label} en wacht op goedkeuring', request_declined: '{actor} heeft {subject} geweigerd', request_cancelled: '{subject} heeft het verzoek ingetrokken', member_joined: '{subject} is erbij gekomen', member_approved: '{actor} heeft {subject} toegelaten ({role})', member_left: '{subject} is vertrokken', member_removed: '{actor} heeft {subject} uit het huis verwijderd', role_changed: '{actor} heeft {subject} de rol {role} gegeven', role_guest: { one: '{actor} heeft {subject} voor # dag gast gemaakt', other: '{actor} heeft {subject} voor # dagen gast gemaakt' }, owner_transferred: '{actor} heeft het huis overgedragen aan {subject}', guest_expired: 'Het verblijf van {subject} als gast is afgelopen' },
+    event: { invite_created: '{actor} heeft een uitnodiging gemaakt voor {label} ({role})', invite_revoked: '{actor} heeft de uitnodiging voor {label} ingetrokken', code_created: '{actor} heeft een nieuwe huiscode gemaakt', code_revoked: '{actor} heeft de huiscode uitgezet', approval_on: '{actor} heeft goedkeuring voor nieuwe mensen aangezet', approval_off: '{actor} heeft goedkeuring voor nieuwe mensen uitgezet', join_requested_code: '{subject} vroeg met de huiscode om erbij te komen', join_requested_link: '{subject} gebruikte de uitnodiging voor {label} en wacht op goedkeuring', request_declined: '{actor} heeft {subject} geweigerd', request_cancelled: '{subject} heeft het verzoek ingetrokken', member_joined: '{subject} is erbij gekomen', member_approved: '{actor} heeft {subject} toegelaten ({role})', member_left: '{subject} is vertrokken', member_removed: '{actor} heeft {subject} uit het huis verwijderd', role_changed: '{actor} heeft {subject} de rol {role} gegeven', role_guest: { one: '{actor} heeft {subject} voor # dag gast gemaakt', other: '{actor} heeft {subject} voor # dagen gast gemaakt' }, owner_transferred: '{actor} heeft het huis overgedragen aan {subject}', guest_expired: 'Het verblijf van {subject} als gast is afgelopen', chat_renamed: '{actor} heeft de groepschat hernoemd' },
   },
   log: {
     title: 'Huislogboek',
@@ -154,6 +155,20 @@ const nl: Messages = {
     yellow: 'Zachtgeel',
     dark: 'Donker',
   },
+  stickers: {
+    thanks: 'Dank je!',
+    love: 'Lief!',
+    haha: 'Haha',
+    ok: 'Oké!',
+    on_my_way: 'Ik kom eraan',
+    dinner: 'Eten is klaar',
+    cleaning: 'Schoonmaaktijd',
+    paid: 'Betaald!',
+    sorry: 'Sorry!',
+    good_night: 'Welterusten',
+    party: 'Joepie!',
+    coffee: 'Koffie?',
+  },
   create: {
     title: 'Maak je huis aan',
     lead: 'Daarna krijg je een link om iedereen uit te nodigen.',
@@ -181,6 +196,13 @@ const nl: Messages = {
     paused: 'Gepauzeerd om batterij te sparen. Tik ergens om bij te werken.',
   },
   chat: {
+    renamed: 'Groepschat hernoemd',
+    rename: 'Groepschat hernoemen',
+    nameLabel: 'Naam van de groepschat',
+    sendSticker: 'Sticker sturen: {name}',
+    stickersTab: 'Stickers',
+    emojiTab: 'Emoji',
+    emojiButton: 'Emoji en stickers',
     emptyTitle: 'Het is hier stil',
     emptyText: 'Zeg iedereen gedag, of deel een foto van het avondeten.',
     older: 'Oudere berichten tonen',
@@ -200,6 +222,7 @@ const nl: Messages = {
     yesterday: 'Gisteren',
   },
   system: {
+    chatRenamed: '{actor} heeft de groepschat “{name}” genoemd',
     welcome:
       'Welkom thuis! 👋 Dit is jullie gedeelde chat. In de Bibliotheek staan een paar voorbeeldnotities en bij Rekeningen een voorbeeldrekening om het verdelen te proberen. Open ⚙️ om huisgenoten uit te nodigen of de voorbeelden te wissen.',
     joined: '{name} is erbij gekomen 🎉',

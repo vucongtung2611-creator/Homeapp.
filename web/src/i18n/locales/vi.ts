@@ -8,6 +8,7 @@ const vi: Messages = {
     tagline: 'Người bạn đồng hành của cả nhà, mỗi ngày.',
   },
   common: {
+    cancel: 'Huỷ',
     loading: 'Đang tải',
     retry: 'Thử lại',
     save: 'Lưu',
@@ -118,7 +119,7 @@ const vi: Messages = {
     inviteUsed: '{name} đã nhận',
     invitePending: 'Đang chờ · đến {date}',
     waitingBanner: { other: '# người đang xin vào nhà — mở Hộp thư' },
-    event: { invite_created: '{actor} đã tạo thư mời cho {label} ({role})', invite_revoked: '{actor} đã huỷ thư mời cho {label}', code_created: '{actor} đã tạo mã nhà mới', code_revoked: '{actor} đã tắt mã nhà', approval_on: '{actor} đã bật duyệt người mới', approval_off: '{actor} đã tắt duyệt người mới', join_requested_code: '{subject} xin vào nhà bằng mã nhà', join_requested_link: '{subject} đã dùng thư mời cho {label} và đang chờ duyệt', request_declined: '{actor} đã từ chối {subject}', request_cancelled: '{subject} đã rút yêu cầu xin vào', member_joined: '{subject} đã vào nhà', member_approved: '{actor} đã cho {subject} vào nhà ({role})', member_left: '{subject} đã rời nhà', member_removed: '{actor} đã gỡ {subject} khỏi nhà', role_changed: '{actor} đã đặt {subject} làm {role}', role_guest: { other: '{actor} đã đặt {subject} làm khách trong # ngày' }, owner_transferred: '{actor} đã chuyển quyền chủ nhà cho {subject}', guest_expired: '{subject} đã hết thời gian làm khách' },
+    event: { invite_created: '{actor} đã tạo thư mời cho {label} ({role})', invite_revoked: '{actor} đã huỷ thư mời cho {label}', code_created: '{actor} đã tạo mã nhà mới', code_revoked: '{actor} đã tắt mã nhà', approval_on: '{actor} đã bật duyệt người mới', approval_off: '{actor} đã tắt duyệt người mới', join_requested_code: '{subject} xin vào nhà bằng mã nhà', join_requested_link: '{subject} đã dùng thư mời cho {label} và đang chờ duyệt', request_declined: '{actor} đã từ chối {subject}', request_cancelled: '{subject} đã rút yêu cầu xin vào', member_joined: '{subject} đã vào nhà', member_approved: '{actor} đã cho {subject} vào nhà ({role})', member_left: '{subject} đã rời nhà', member_removed: '{actor} đã gỡ {subject} khỏi nhà', role_changed: '{actor} đã đặt {subject} làm {role}', role_guest: { other: '{actor} đã đặt {subject} làm khách trong # ngày' }, owner_transferred: '{actor} đã chuyển quyền chủ nhà cho {subject}', guest_expired: '{subject} đã hết thời gian làm khách', chat_renamed: '{actor} đã đổi tên nhóm chat' },
   },
   log: {
     title: 'Nhật ký nhà',
@@ -154,6 +155,20 @@ const vi: Messages = {
     yellow: 'Vàng nhạt',
     dark: 'Tối',
   },
+  stickers: {
+    thanks: 'Cảm ơn nha!',
+    love: 'Thương ghê',
+    haha: 'Haha',
+    ok: 'OK!',
+    on_my_way: 'Đang về',
+    dinner: 'Cơm xong rồi',
+    cleaning: 'Dọn nhà thôi',
+    paid: 'Đã trả!',
+    sorry: 'Xin lỗi nha!',
+    good_night: 'Ngủ ngon',
+    party: 'Yeah!',
+    coffee: 'Cà phê không?',
+  },
   create: {
     title: 'Tạo nhà của bạn',
     lead: 'Sau đó bạn sẽ có một link để mời mọi người vào.',
@@ -181,6 +196,13 @@ const vi: Messages = {
     paused: 'Đã tạm ngắt để tiết kiệm pin. Chạm vào bất kỳ đâu để xem tin mới.',
   },
   chat: {
+    renamed: 'Đã đổi tên nhóm chat',
+    rename: 'Đổi tên nhóm chat',
+    nameLabel: 'Tên nhóm chat',
+    sendSticker: 'Gửi nhãn dán: {name}',
+    stickersTab: 'Nhãn dán',
+    emojiTab: 'Emoji',
+    emojiButton: 'Emoji và nhãn dán',
     emptyTitle: 'Nhà đang yên ắng quá',
     emptyText: 'Gửi lời chào cả nhà, hoặc khoe ảnh bữa tối nay.',
     older: 'Xem tin cũ hơn',
@@ -200,6 +222,7 @@ const vi: Messages = {
     yesterday: 'Hôm qua',
   },
   system: {
+    chatRenamed: '{actor} đã đổi tên nhóm chat thành “{name}”',
     welcome:
       'Chào mừng về nhà! 👋 Đây là chat chung của cả nhà. Thư viện có vài ghi chú mẫu, và tab Hóa đơn có một hóa đơn mẫu để bạn thử chia tiền. Vào ⚙️ để mời người ở chung hoặc xoá dữ liệu mẫu.',
     joined: '{name} đã vào nhà 🎉',

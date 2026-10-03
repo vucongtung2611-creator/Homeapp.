@@ -75,6 +75,8 @@ const RESIDENT_ROLES: Role[] = ['owner', 'manager', 'family_member', 'tenant', '
 /** Who can invite people, let them in and remove residents. */
 const MANAGER_ROLES: Role[] = ['owner', 'manager'];
 const GUEST_DAYS = [1, 3, 7, 14, 30, 90];
+/** Built-in stickers (the app draws them; captions are translated). */
+const STICKERS = ['thanks', 'love', 'haha', 'ok', 'on_my_way', 'dinner', 'cleaning', 'paid', 'sorry', 'good_night', 'party', 'coffee'] as const;
 
 type Env = { Variables: { user?: User } };
 
@@ -422,6 +424,7 @@ export async function createServer(options: ServerOptions) {
       hasSamples: hasSamples(home, householdId),
       canInvite: MANAGER_ROLES.includes(role),
       approveJoins: node.props.approveJoins !== false,
+      chatName: (node.props.chatName as string | undefined) ?? null,
       canDelete: role === 'owner' && (await deletable(home, householdId)),
       unreadInbox: await unreadCount(user.id, householdId, role),
       pendingRequests:
@@ -449,6 +452,19 @@ export async function createServer(options: ServerOptions) {
       await store.remove(householdId);
     });
     return c.json({ ok: true });
+  });
+
+  /** Owners and managers name the group chat (empty = the home's name). */
+  app.patch('/api/households/:hid/chat', async (c) => {
+    const { user, householdId, home } = await requireManager(c);
+    const name = str((await body(c)).name, { max: 60, field: 'name' }) ?? null;
+    const before = (home.platform.graph.requireNode(householdId).props.chatName as string | undefined) ?? null;
+    if (name === before) return c.json({ chatName: name });
+    await store.mutate(householdId, (h) => h.platform.graph.updateNode(householdId, { chatName: name ?? undefined }));
+    hub.publish(householdId, { type: 'changed', area: 'household' });
+    await insertSystem(householdId, { key: 'chatRenamed', params: { actor: user.name, name: name ?? nameOfHome(home, householdId) } });
+    await logEvent(householdId, 'chat_renamed', 'members', { actor: user, data: { label: name } });
+    return c.json({ chatName: name });
   });
 
   app.patch('/api/households/:hid', async (c) => {
@@ -1104,13 +1120,14 @@ export async function createServer(options: ServerOptions) {
    * exactly as typed and never translated.)
    */
   interface SystemMessage {
-    key: 'welcome' | 'joined' | 'billAdded' | 'billPaid' | 'settled';
+    key: 'welcome' | 'joined' | 'billAdded' | 'billPaid' | 'settled' | 'chatRenamed';
     params?: Record<string, string | number | undefined>;
   }
   const insertSystem = (householdId: string, system: SystemMessage) => insertMessage(householdId, null, '', undefined, system);
 
   /** Numbers each household's messages 1, 2, 3… — serialised so two senders never get the same number. */
-  async function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string, system?: SystemMessage) {
+  /** `meta`: a system message's key and params, or a person's sticker ({ sticker }). */
+  async function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string, system?: SystemMessage | { sticker: string }) {
     const row = await store.withLock(`messages:${householdId}`, async () => {
       const last = await db.get<{ s: number | string | null }>('SELECT MAX(seq) AS s FROM messages WHERE household_id = ?', householdId);
       const seq = Number(last?.s ?? 0) + 1;
@@ -1151,7 +1168,8 @@ export async function createServer(options: ServerOptions) {
       userId: row.user_id,
       userName: row.user_id ? (home?.platform.graph.getNode(row.user_id)?.label ?? '?') : null,
       text: row.text,
-      system: row.meta ? (JSON.parse(row.meta) as SystemMessage) : null,
+      system: row.meta && !row.user_id ? (JSON.parse(row.meta) as SystemMessage) : null,
+      sticker: row.meta && row.user_id ? ((JSON.parse(row.meta) as { sticker?: string }).sticker ?? null) : null,
       file: file ? fileDto(file) : null,
       createdAt: row.created_at,
     };
@@ -1178,9 +1196,10 @@ export async function createServer(options: ServerOptions) {
     const data = await body(c);
     const text = str(data.text, { max: 4000, field: 'text' }) ?? '';
     const fileId = str(data.fileId, { max: 100, field: 'fileId' });
-    if (!text && !fileId) throw bad('message_empty');
+    const sticker = data.sticker === undefined ? undefined : oneOf(data.sticker, STICKERS, 'sticker');
+    if (!text && !fileId && !sticker) throw bad('message_empty');
     if (fileId && !(await ownUploads(user.id, householdId, [fileId]))[0]!.mime.startsWith('image/')) throw bad('chat_images_only');
-    return c.json(await insertMessage(householdId, user.id, text, fileId), 201);
+    return c.json(await insertMessage(householdId, user.id, sticker ? '' : text, sticker ? undefined : fileId, sticker ? { sticker } : undefined), 201);
   });
 
   app.delete('/api/households/:hid/messages/:mid', async (c) => {

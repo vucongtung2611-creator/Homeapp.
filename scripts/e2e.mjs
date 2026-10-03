@@ -254,6 +254,25 @@ try {
   await p.getByText('Chào cả nhà! Tối nay ai nấu cơm?').waitFor({ timeout: 5000 });
   step(`text message arrived on Linh's phone in ${Date.now() - t0} ms (no reload)`);
 
+  // Emoji at the cursor, a sticker, and a new name for the group chat.
+  await q.getByLabel('Tin nhắn').fill('Tối nay ăn phở ');
+  await q.getByRole('button', { name: 'Emoji và nhãn dán' }).click();
+  await q.getByTestId('picker').getByRole('button', { name: '🍜' }).click();
+  await expect((await q.getByLabel('Tin nhắn').inputValue()) === 'Tối nay ăn phở 🍜', 'emoji inserted');
+  await q.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await p.getByText('Tối nay ăn phở 🍜').waitFor({ timeout: 5000 });
+  await q.getByRole('button', { name: 'Emoji và nhãn dán' }).click();
+  await q.getByRole('tab', { name: 'Nhãn dán' }).click();
+  await shot(q, '06b-stickers');
+  await q.getByRole('button', { name: 'Gửi nhãn dán: Cảm ơn nha!' }).click();
+  await p.locator('.msg .sticker', { hasText: 'Cảm ơn nha!' }).waitFor({ timeout: 5000 });
+  await p.getByRole('button', { name: 'Đổi tên nhóm chat' }).click();
+  await p.getByLabel('Tên nhóm chat').fill('Nhà mình 🏡');
+  await p.getByRole('button', { name: 'Lưu' }).click();
+  await q.getByTestId('chat-name').getByText('Nhà mình 🏡').waitFor({ timeout: 5000 });
+  await q.getByText('Linh đã đổi tên nhóm chat thành “Nhà mình 🏡”').waitFor();
+  step('emoji picker, a sticker, and the group chat renamed — all live on both phones');
+
   // Photo: a PNG rendered by the browser itself.
   const photo = await p.evaluate(async () => {
     const c = document.createElement('canvas');

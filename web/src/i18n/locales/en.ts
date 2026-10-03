@@ -11,6 +11,7 @@ const en = {
     tagline: 'Your everyday companion at home.',
   },
   common: {
+    cancel: 'Cancel',
     loading: 'Loading',
     retry: 'Try again',
     save: 'Save',
@@ -121,7 +122,7 @@ const en = {
     inviteUsed: 'Accepted by {name}',
     invitePending: 'Waiting · until {date}',
     waitingBanner: { one: '# person is waiting to join — open the inbox', other: '# people are waiting to join — open the inbox' },
-    event: { invite_created: '{actor} made an invite for {label} ({role})', invite_revoked: '{actor} cancelled the invite for {label}', code_created: '{actor} made a new home code', code_revoked: '{actor} turned the home code off', approval_on: '{actor} turned on approval for new people', approval_off: '{actor} turned off approval for new people', join_requested_code: '{subject} asked to join with the home code', join_requested_link: '{subject} used the invite for {label} and is waiting for approval', request_declined: '{actor} declined {subject}', request_cancelled: '{subject} withdrew their request', member_joined: '{subject} joined the home', member_approved: '{actor} let {subject} in ({role})', member_left: '{subject} left the home', member_removed: '{actor} removed {subject} from the home', role_changed: '{actor} made {subject} {role}', role_guest: { one: '{actor} made {subject} a guest for # day', other: '{actor} made {subject} a guest for # days' }, owner_transferred: '{actor} handed the home over to {subject}', guest_expired: '{subject}’s stay as a guest ended' },
+    event: { invite_created: '{actor} made an invite for {label} ({role})', invite_revoked: '{actor} cancelled the invite for {label}', code_created: '{actor} made a new home code', code_revoked: '{actor} turned the home code off', approval_on: '{actor} turned on approval for new people', approval_off: '{actor} turned off approval for new people', join_requested_code: '{subject} asked to join with the home code', join_requested_link: '{subject} used the invite for {label} and is waiting for approval', request_declined: '{actor} declined {subject}', request_cancelled: '{subject} withdrew their request', member_joined: '{subject} joined the home', member_approved: '{actor} let {subject} in ({role})', member_left: '{subject} left the home', member_removed: '{actor} removed {subject} from the home', role_changed: '{actor} made {subject} {role}', role_guest: { one: '{actor} made {subject} a guest for # day', other: '{actor} made {subject} a guest for # days' }, owner_transferred: '{actor} handed the home over to {subject}', guest_expired: '{subject}’s stay as a guest ended', chat_renamed: '{actor} renamed the group chat' },
   },
   log: {
     title: 'Home log',
@@ -157,6 +158,20 @@ const en = {
     yellow: 'Soft yellow',
     dark: 'Dark',
   },
+  stickers: {
+    thanks: 'Thank you!',
+    love: 'Love it',
+    haha: 'Haha',
+    ok: 'OK!',
+    on_my_way: 'On my way',
+    dinner: 'Dinner’s ready',
+    cleaning: 'Cleaning time',
+    paid: 'Paid!',
+    sorry: 'Sorry!',
+    good_night: 'Good night',
+    party: 'Yay!',
+    coffee: 'Coffee?',
+  },
   create: {
     title: 'Create your home',
     lead: 'Next you’ll get a link to invite everyone.',
@@ -184,6 +199,13 @@ const en = {
     paused: 'Paused to save battery. Tap anywhere to catch up.',
   },
   chat: {
+    renamed: 'Group chat renamed',
+    rename: 'Rename the group chat',
+    nameLabel: 'Group chat name',
+    sendSticker: 'Send sticker: {name}',
+    stickersTab: 'Stickers',
+    emojiTab: 'Emoji',
+    emojiButton: 'Emoji and stickers',
     emptyTitle: 'It’s quiet in here',
     emptyText: 'Say hi to everyone, or share a photo of tonight’s dinner.',
     older: 'Show older messages',
@@ -203,6 +225,7 @@ const en = {
     yesterday: 'Yesterday',
   },
   system: {
+    chatRenamed: '{actor} renamed the group chat “{name}”',
     welcome:
       'Welcome home! 👋 This is your shared chat. The Library has a few sample notes and Bills has a sample bill to try splitting. Open ⚙️ to invite housemates or clear the samples.',
     joined: '{name} joined the home 🎉',

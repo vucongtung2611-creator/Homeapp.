@@ -8,6 +8,7 @@ const fr: Messages = {
     tagline: 'Votre compagnon du quotidien à la maison.',
   },
   common: {
+    cancel: 'Annuler',
     loading: 'Chargement',
     retry: 'Réessayer',
     save: 'Enregistrer',
@@ -118,7 +119,7 @@ const fr: Messages = {
     inviteUsed: 'Acceptée par {name}',
     invitePending: 'En attente · jusqu’au {date}',
     waitingBanner: { one: '# personne attend d’entrer — ouvrir la boîte de réception', other: '# personnes attendent d’entrer — ouvrir la boîte de réception' },
-    event: { invite_created: '{actor} a créé une invitation pour {label} ({role})', invite_revoked: '{actor} a annulé l’invitation pour {label}', code_created: '{actor} a créé un nouveau code du foyer', code_revoked: '{actor} a désactivé le code du foyer', approval_on: '{actor} a activé l’accord pour les nouvelles personnes', approval_off: '{actor} a désactivé l’accord pour les nouvelles personnes', join_requested_code: '{subject} a demandé à entrer avec le code du foyer', join_requested_link: '{subject} a utilisé l’invitation pour {label} et attend un accord', request_declined: '{actor} a refusé {subject}', request_cancelled: '{subject} a retiré sa demande', member_joined: '{subject} a rejoint le foyer', member_approved: '{actor} a fait entrer {subject} ({role})', member_left: '{subject} a quitté le foyer', member_removed: '{actor} a retiré {subject} du foyer', role_changed: '{actor} a donné à {subject} le rôle {role}', role_guest: { one: '{actor} a fait de {subject} un invité pour # jour', other: '{actor} a fait de {subject} un invité pour # jours' }, owner_transferred: '{actor} a confié le foyer à {subject}', guest_expired: 'Le séjour de {subject} en tant qu’invité est terminé' },
+    event: { invite_created: '{actor} a créé une invitation pour {label} ({role})', invite_revoked: '{actor} a annulé l’invitation pour {label}', code_created: '{actor} a créé un nouveau code du foyer', code_revoked: '{actor} a désactivé le code du foyer', approval_on: '{actor} a activé l’accord pour les nouvelles personnes', approval_off: '{actor} a désactivé l’accord pour les nouvelles personnes', join_requested_code: '{subject} a demandé à entrer avec le code du foyer', join_requested_link: '{subject} a utilisé l’invitation pour {label} et attend un accord', request_declined: '{actor} a refusé {subject}', request_cancelled: '{subject} a retiré sa demande', member_joined: '{subject} a rejoint le foyer', member_approved: '{actor} a fait entrer {subject} ({role})', member_left: '{subject} a quitté le foyer', member_removed: '{actor} a retiré {subject} du foyer', role_changed: '{actor} a donné à {subject} le rôle {role}', role_guest: { one: '{actor} a fait de {subject} un invité pour # jour', other: '{actor} a fait de {subject} un invité pour # jours' }, owner_transferred: '{actor} a confié le foyer à {subject}', guest_expired: 'Le séjour de {subject} en tant qu’invité est terminé', chat_renamed: '{actor} a renommé la discussion' },
   },
   log: {
     title: 'Journal du foyer',
@@ -154,6 +155,20 @@ const fr: Messages = {
     yellow: 'Jaune pâle',
     dark: 'Sombre',
   },
+  stickers: {
+    thanks: 'Merci !',
+    love: 'Trop bien',
+    haha: 'Haha',
+    ok: 'OK !',
+    on_my_way: 'J’arrive',
+    dinner: 'À table !',
+    cleaning: 'C’est l’heure du ménage',
+    paid: 'Payé !',
+    sorry: 'Désolé !',
+    good_night: 'Bonne nuit',
+    party: 'Youpi !',
+    coffee: 'Un café ?',
+  },
   create: {
     title: 'Créer votre foyer',
     lead: 'Vous obtiendrez ensuite un lien pour inviter tout le monde.',
@@ -181,6 +196,13 @@ const fr: Messages = {
     paused: 'En pause pour économiser la batterie. Touchez n’importe où pour vous remettre à jour.',
   },
   chat: {
+    renamed: 'Discussion renommée',
+    rename: 'Renommer la discussion',
+    nameLabel: 'Nom de la discussion',
+    sendSticker: 'Envoyer l’autocollant : {name}',
+    stickersTab: 'Autocollants',
+    emojiTab: 'Émojis',
+    emojiButton: 'Émojis et autocollants',
     emptyTitle: 'C’est calme ici',
     emptyText: 'Dites bonjour à tout le monde, ou partagez une photo du dîner.',
     older: 'Voir les messages plus anciens',
@@ -200,6 +222,7 @@ const fr: Messages = {
     yesterday: 'Hier',
   },
   system: {
+    chatRenamed: '{actor} a renommé la discussion « {name} »',
     welcome:
       'Bienvenue à la maison ! 👋 Voici votre discussion commune. La Bibliothèque contient quelques notes d’exemple et Factures une facture d’exemple pour tester le partage. Ouvrez ⚙️ pour inviter vos colocataires ou effacer les exemples.',
     joined: '{name} a rejoint le foyer 🎉',

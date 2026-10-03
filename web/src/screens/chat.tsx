@@ -6,8 +6,9 @@ import type { Live } from '../router.js';
 import { CharacterAvatar } from '../characters.js';
 import { dayLabel, formatDate, formatMoney, formatTime, t, type MessageKey } from '../i18n/index.js';
 import { RoomArt } from '../illustrations.js';
-import { EmptyState, ErrorState, Icon, Lightbox, Skeleton, Spinner, toastError } from '../ui.js';
+import { EmptyState, ErrorState, Icon, Lightbox, Skeleton, Spinner, toast, toastError } from '../ui.js';
 import { errorText } from '../util.js';
+import { EMOJI, STICKERS, Sticker } from '../stickers.js';
 
 /** System messages arrive as a key + params and are rendered in the reader's language. */
 function systemText(system: NonNullable<Message['system']>): string {
@@ -126,12 +127,30 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
     }
   };
 
-  const send = () => {
-    const body = text.trim();
-    const pic = photo;
-    if (!body && !pic) return;
-    setText('');
-    setPhoto(undefined);
+  const [panel, setPanel] = useState<'emoji' | 'stickers'>();
+  /** Put an emoji where the cursor is. */
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    const at = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? at;
+    const next = text.slice(0, at) + emoji + text.slice(end);
+    setText(next);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.selectionStart = el.selectionEnd = at + emoji.length;
+    });
+  };
+
+  const send = (sticker?: string) => {
+    const body = sticker ? '' : text.trim();
+    const pic = sticker ? undefined : photo;
+    if (!body && !pic && !sticker) return;
+    setPanel(undefined);
+    if (!sticker) {
+      setText('');
+      setPhoto(undefined);
+    }
     if (inputRef.current) inputRef.current.style.height = '';
     const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const optimistic: Shown = {
@@ -141,6 +160,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
       userName: '',
       system: null,
       text: body,
+      sticker: sticker ?? null,
       file: null,
       createdAt: new Date().toISOString(),
       pending: true,
@@ -154,7 +174,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
           const prepared = await preparePhoto(pic.file);
           fileId = (await upload(home.id, prepared.blob, prepared.name)).id;
         }
-        const saved = await api<Message>('POST', `/api/households/${home.id}/messages`, { text: body, fileId });
+        const saved = await api<Message>('POST', `/api/households/${home.id}/messages`, sticker ? { sticker } : { text: body, fileId });
         setMessages((cur) => cur.filter((m) => m.id !== localId));
         merge([saved]);
       } catch (err) {
@@ -193,6 +213,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
 
   return (
     <div class="page chat-page">
+      <ChatName home={home} />
       <div class="messages" ref={listRef} aria-live="polite">
         {state === 'loading' && (
           <div style={{ padding: '8px 4px' }}>
@@ -226,7 +247,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
                     <div class="col">
                       {!mine && !cont && <span class="who">{m.userName}</span>}
                       <div
-                        class={`bubble ${src ? 'photo' : ''}`}
+                        class={`bubble ${src ? 'photo' : ''} ${m.sticker ? 'sticker-bubble' : ''}`}
                         onContextMenu={(e) => {
                           if (mine) {
                             e.preventDefault();
@@ -234,6 +255,7 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
                           }
                         }}
                       >
+                        {m.sticker && <Sticker id={m.sticker} />}
                         {src && <img src={src} alt={t('chat.photoAlt')} loading="lazy" onClick={() => setLightbox(src)} />}
                         {m.text && (src ? <div class="caption">{m.text}</div> : m.text)}
                       </div>
@@ -268,6 +290,35 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
           </button>
         </div>
       )}
+      {panel && (
+        <div class="picker" data-testid="picker">
+          <div class="segmented" role="tablist">
+            <button type="button" role="tab" aria-pressed={panel === 'emoji'} onClick={() => setPanel('emoji')}>
+              {t('chat.emojiTab')}
+            </button>
+            <button type="button" role="tab" aria-pressed={panel === 'stickers'} onClick={() => setPanel('stickers')}>
+              {t('chat.stickersTab')}
+            </button>
+          </div>
+          {panel === 'emoji' ? (
+            <div class="emoji-grid">
+              {EMOJI.map((e) => (
+                <button type="button" key={e} onClick={() => insertEmoji(e)} aria-label={e}>
+                  {e}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div class="sticker-grid">
+              {STICKERS.map((st) => (
+                <button type="button" key={st.id} onClick={() => send(st.id)} aria-label={t('chat.sendSticker', { name: t(`stickers.${st.id}` as MessageKey) })}>
+                  <Sticker id={st.id} />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <form
         class="composer"
         onSubmit={(e) => {
@@ -279,6 +330,15 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
         <div class="composer-box">
         <button type="button" class="icon-btn" aria-label={t('chat.sendPhoto')} onClick={() => fileRef.current?.click()}>
           <Icon.image />
+        </button>
+        <button
+          type="button"
+          class="icon-btn emoji-btn"
+          aria-label={t('chat.emojiButton')}
+          aria-expanded={Boolean(panel)}
+          onClick={() => setPanel(panel ? undefined : 'emoji')}
+        >
+          {panel ? '⌨️' : '😊'}
         </button>
         <textarea
           ref={inputRef}
@@ -315,4 +375,57 @@ function isNearBottom(_el: HTMLElement | null): boolean {
   const el = document.scrollingElement;
   if (!el) return true;
   return el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+}
+
+/** The group chat's name; owners and managers can change it. */
+function ChatName({ home }: { home: Household }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const name = home.chatName ?? home.name;
+  const save = async (e: Event) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('PATCH', `/api/households/${home.id}/chat`, { name: draft.trim() });
+      setEditing(false);
+      toast(t('chat.renamed'));
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (editing) {
+    return (
+      <form class="chat-head" onSubmit={save}>
+        <input
+          class="input small"
+          style={{ flex: 1 }}
+          value={draft}
+          maxLength={60}
+          aria-label={t('chat.nameLabel')}
+          placeholder={home.name}
+          onInput={(e) => setDraft(e.currentTarget.value)}
+          ref={(el) => el?.focus()}
+        />
+        <button class="btn small" type="submit" disabled={busy}>
+          {t('common.save')}
+        </button>
+        <button class="btn small ghost" type="button" onClick={() => setEditing(false)}>
+          {t('common.cancel')}
+        </button>
+      </form>
+    );
+  }
+  return (
+    <div class="chat-head" data-testid="chat-name">
+      <span class="name">💬 {name}</span>
+      {home.canInvite && (
+        <button class="btn small ghost" aria-label={t('chat.rename')} onClick={() => (setDraft(home.chatName ?? ''), setEditing(true))}>
+          ✎
+        </button>
+      )}
+    </div>
+  );
 }

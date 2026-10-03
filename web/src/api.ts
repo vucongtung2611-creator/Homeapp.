@@ -97,6 +97,8 @@ export interface Household {
   pendingRequests: number;
   /** The owner may delete the home: they're alone and nothing real is in it. */
   canDelete: boolean;
+  /** The group chat's own name (null = the home's name). */
+  chatName: string | null;
   /** Inbox entries this person hasn't seen yet. */
   unreadInbox: number;
 }
@@ -141,6 +143,8 @@ export interface Message {
   text: string;
   /** Language-neutral system message, rendered with t('system.<key>'). */
   system: { key: string; params?: Record<string, string | number> } | null;
+  /** A built-in sticker id, for sticker messages. */
+  sticker?: string | null;
   file: UploadedFile | null;
   createdAt: string;
 }
@@ -204,6 +208,8 @@ export interface Expense {
   shared: boolean;
   ownerId: string;
   canDelete: boolean;
+  /** The group chat's own name (null = the home's name). */
+  chatName: string | null;
   /** Inbox entries this person hasn't seen yet. */
   unreadInbox: number;
 }

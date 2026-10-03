@@ -8,6 +8,7 @@ const de: Messages = {
     tagline: 'Dein Begleiter für den Alltag zu Hause.',
   },
   common: {
+    cancel: 'Abbrechen',
     loading: 'Wird geladen',
     retry: 'Erneut versuchen',
     save: 'Speichern',
@@ -118,7 +119,7 @@ const de: Messages = {
     inviteUsed: 'Angenommen von {name}',
     invitePending: 'Offen · bis {date}',
     waitingBanner: { one: '# Person möchte beitreten — Posteingang öffnen', other: '# Personen möchten beitreten — Posteingang öffnen' },
-    event: { invite_created: '{actor} hat eine Einladung für {label} erstellt ({role})', invite_revoked: '{actor} hat die Einladung für {label} zurückgezogen', code_created: '{actor} hat einen neuen Hauscode erstellt', code_revoked: '{actor} hat den Hauscode ausgeschaltet', approval_on: '{actor} hat die Bestätigung neuer Personen eingeschaltet', approval_off: '{actor} hat die Bestätigung neuer Personen ausgeschaltet', join_requested_code: '{subject} hat mit dem Hauscode um Beitritt gebeten', join_requested_link: '{subject} hat die Einladung für {label} benutzt und wartet auf Bestätigung', request_declined: '{actor} hat {subject} abgelehnt', request_cancelled: '{subject} hat die Anfrage zurückgezogen', member_joined: '{subject} ist eingezogen', member_approved: '{actor} hat {subject} reingelassen ({role})', member_left: '{subject} ist ausgezogen', member_removed: '{actor} hat {subject} entfernt', role_changed: '{actor} hat {subject} die Rolle {role} gegeben', role_guest: { one: '{actor} hat {subject} für # Tag zum Gast gemacht', other: '{actor} hat {subject} für # Tage zum Gast gemacht' }, owner_transferred: '{actor} hat das Zuhause an {subject} übergeben', guest_expired: 'Der Aufenthalt von {subject} als Gast ist vorbei' },
+    event: { invite_created: '{actor} hat eine Einladung für {label} erstellt ({role})', invite_revoked: '{actor} hat die Einladung für {label} zurückgezogen', code_created: '{actor} hat einen neuen Hauscode erstellt', code_revoked: '{actor} hat den Hauscode ausgeschaltet', approval_on: '{actor} hat die Bestätigung neuer Personen eingeschaltet', approval_off: '{actor} hat die Bestätigung neuer Personen ausgeschaltet', join_requested_code: '{subject} hat mit dem Hauscode um Beitritt gebeten', join_requested_link: '{subject} hat die Einladung für {label} benutzt und wartet auf Bestätigung', request_declined: '{actor} hat {subject} abgelehnt', request_cancelled: '{subject} hat die Anfrage zurückgezogen', member_joined: '{subject} ist eingezogen', member_approved: '{actor} hat {subject} reingelassen ({role})', member_left: '{subject} ist ausgezogen', member_removed: '{actor} hat {subject} entfernt', role_changed: '{actor} hat {subject} die Rolle {role} gegeben', role_guest: { one: '{actor} hat {subject} für # Tag zum Gast gemacht', other: '{actor} hat {subject} für # Tage zum Gast gemacht' }, owner_transferred: '{actor} hat das Zuhause an {subject} übergeben', guest_expired: 'Der Aufenthalt von {subject} als Gast ist vorbei', chat_renamed: '{actor} hat den Gruppenchat umbenannt' },
   },
   log: {
     title: 'Hausprotokoll',
@@ -154,6 +155,20 @@ const de: Messages = {
     yellow: 'Zartgelb',
     dark: 'Dunkel',
   },
+  stickers: {
+    thanks: 'Danke!',
+    love: 'Herzlich',
+    haha: 'Haha',
+    ok: 'OK!',
+    on_my_way: 'Bin unterwegs',
+    dinner: 'Essen ist fertig',
+    cleaning: 'Putzzeit',
+    paid: 'Bezahlt!',
+    sorry: 'Sorry!',
+    good_night: 'Gute Nacht',
+    party: 'Juhu!',
+    coffee: 'Kaffee?',
+  },
   create: {
     title: 'Dein Zuhause erstellen',
     lead: 'Danach bekommst du einen Link, um alle einzuladen.',
@@ -181,6 +196,13 @@ const de: Messages = {
     paused: 'Pausiert, um Akku zu sparen. Tippe irgendwo, um auf den neuesten Stand zu kommen.',
   },
   chat: {
+    renamed: 'Gruppenchat umbenannt',
+    rename: 'Gruppenchat umbenennen',
+    nameLabel: 'Name des Gruppenchats',
+    sendSticker: 'Sticker senden: {name}',
+    stickersTab: 'Sticker',
+    emojiTab: 'Emojis',
+    emojiButton: 'Emojis und Sticker',
     emptyTitle: 'Hier ist es ruhig',
     emptyText: 'Sag allen Hallo oder teile ein Foto vom Abendessen.',
     older: 'Ältere Nachrichten anzeigen',
@@ -200,6 +222,7 @@ const de: Messages = {
     yesterday: 'Gestern',
   },
   system: {
+    chatRenamed: '{actor} hat den Gruppenchat in „{name}“ umbenannt',
     welcome:
       'Willkommen zu Hause! 👋 Das ist euer gemeinsamer Chat. In der Bibliothek liegen ein paar Beispielnotizen, unter Rechnungen eine Beispielrechnung zum Ausprobieren. Öffne ⚙️, um Mitbewohner einzuladen oder die Beispiele zu löschen.',
     joined: '{name} ist dem Zuhause beigetreten 🎉',
