@@ -205,6 +205,23 @@ export async function createServer(options: ServerOptions) {
     if (m.role !== 'owner') throw new HttpError(403, 'owner_only');
     return m;
   };
+  // ── Home inbox: a record of what happened, also the owner's home log ──
+  // 'members' events (joins, leaving, roles) are seen by everyone in the
+  // home; 'managers' events (requests, invites) only by those who manage it.
+  type EventAudience = 'members' | 'managers';
+  const logEvent = async (
+    householdId: string,
+    kind: string,
+    audience: EventAudience,
+    who: { actor?: User | { id: string; name: string } | null; subject?: { id: string; name: string } | null; data?: Record<string, unknown> } = {},
+  ) => {
+    const data = { ...who.data, actorName: who.actor?.name ?? null, subjectName: who.subject?.name ?? null };
+    await db.run(
+      'INSERT INTO household_events (id, household_id, kind, audience, actor_id, subject_id, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      `ev_${randomUUID()}`, householdId, kind, audience, who.actor?.id ?? null, who.subject?.id ?? null, JSON.stringify(data), new Date().toISOString(),
+    );
+    hub.publish(householdId, { type: 'changed', area: 'inbox' });
+  };
   const startSession = async (c: Context, user: User) => {
     const { token, expiresAt } = await auth.createSession(user.id);
     setCookie(c, SESSION_COOKIE, token, {
@@ -295,6 +312,7 @@ export async function createServer(options: ServerOptions) {
       canInvite: MANAGER_ROLES.includes(role),
       approveJoins: node.props.approveJoins !== false,
       canDelete: role === 'owner' && (await deletable(home, householdId)),
+      unreadInbox: await unreadCount(user.id, householdId, role),
       pendingRequests:
         MANAGER_ROLES.includes(role)
           ? Number((await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM join_requests WHERE household_id = ? AND status = 'pending'", householdId))?.n ?? 0)
@@ -323,11 +341,12 @@ export async function createServer(options: ServerOptions) {
   });
 
   app.patch('/api/households/:hid', async (c) => {
-    const { householdId } = await requireOwner(c);
+    const { user, householdId } = await requireOwner(c);
     const data = await body(c);
     if (data.approveJoins !== undefined) {
       const approveJoins = bool(data.approveJoins, true);
       await store.mutate(householdId, (h) => h.platform.graph.updateNode(householdId, { approveJoins }));
+      await logEvent(householdId, approveJoins ? 'approval_on' : 'approval_off', 'managers', { actor: user });
     }
     hub.publish(householdId, { type: 'changed', area: 'household' });
     return c.json({ ok: true });
@@ -349,9 +368,12 @@ export async function createServer(options: ServerOptions) {
     if (!targetRole) throw new HttpError(404, 'not_found');
     if (target === user.id && role === 'owner') throw bad('owner_cannot_leave');
     if (target !== user.id && role !== 'owner') throw new HttpError(403, 'owner_only');
+    const subject = { id: target, name: (await auth.getUser(target))?.name ?? '' };
     await store.removeMember(householdId, target);
     hub.kick(householdId, target);
     hub.publish(householdId, { type: 'changed', area: 'members' });
+    if (target === user.id) await logEvent(householdId, 'member_left', 'members', { subject });
+    else await logEvent(householdId, 'member_removed', 'members', { actor: user, subject });
     return c.json({ ok: true });
   });
 
@@ -387,9 +409,14 @@ export async function createServer(options: ServerOptions) {
   const nameOfHome = (home: HomeApp, householdId: string) => home.platform.graph.requireNode(householdId).label;
   const nameOf = (home: HomeApp, id: string | null) => (id ? (home.platform.graph.getNode(id)?.label ?? '') : '');
   const codeDto = (row: InviteRow) => ({ code: `${row.code!.slice(0, 4)}-${row.code!.slice(4)}`, expiresAt: row.expires_at });
-  const linkDto = (c: Context, home: HomeApp, row: InviteRow) => {
+  const linkDto = (c: Context, home: HomeApp, row: InviteRow, requests?: Map<string, string>, names?: Map<string, string>) => {
     const status = inviteStatus(row);
+    // A used link: did that person get in, are they still waiting, or were they turned down?
+    const request = row.used_by ? requests?.get(row.used_by) : undefined;
+    const outcome =
+      status !== 'used' ? null : home.platform.acl.roleOf(row.used_by!, row.household_id) ? 'accepted' : request === 'pending' ? 'waiting' : request === 'declined' ? 'declined' : 'left';
     return {
+      outcome,
       id: row.id,
       label: row.label ?? '',
       role: row.role,
@@ -397,7 +424,7 @@ export async function createServer(options: ServerOptions) {
       createdAt: row.created_at,
       expiresAt: row.expires_at,
       invitedBy: nameOf(home, row.created_by),
-      usedBy: row.used_by ? nameOf(home, row.used_by) || null : null,
+      usedBy: row.used_by ? nameOf(home, row.used_by) || names?.get(row.used_by) || null : null,
       usedAt: row.used_at,
       url: status === 'pending' && row.token ? `${origin(c)}/join/${row.token}` : null,
     };
@@ -407,9 +434,21 @@ export async function createServer(options: ServerOptions) {
     const { householdId, home } = await requireManager(c);
     const rows = await db.all<InviteRow>('SELECT * FROM invites WHERE household_id = ? AND id IS NOT NULL ORDER BY created_at DESC LIMIT 50', householdId);
     const code = rows.find((r) => r.kind === 'code' && inviteStatus(r) === 'pending');
+    const requests = new Map<string, string>();
+    for (const r of await db.all<{ user_id: string; status: string }>('SELECT user_id, status FROM join_requests WHERE household_id = ? ORDER BY created_at', householdId)) {
+      requests.set(r.user_id, r.status);
+    }
+    // People who used a link but aren't (or are no longer) members still have a name.
+    const names = new Map<string, string>();
+    for (const r of await db.all<{ id: string; name: string }>(
+      "SELECT u.id, u.name FROM users u JOIN invites i ON i.used_by = u.id WHERE i.household_id = ? AND i.kind = 'link'",
+      householdId,
+    )) {
+      names.set(r.id, r.name);
+    }
     return c.json({
       code: code ? codeDto(code) : null,
-      links: rows.filter((r) => r.kind === 'link').map((r) => linkDto(c, home, r)),
+      links: rows.filter((r) => r.kind === 'link').map((r) => linkDto(c, home, r, requests, names)),
       roles: joinRoles(home, householdId),
       approveJoins: needsApproval(home, householdId),
     });
@@ -436,13 +475,16 @@ export async function createServer(options: ServerOptions) {
       'INSERT INTO invites (token_hash, id, kind, household_id, created_by, created_at, expires_at, role, label, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       sha256(token), row.id, 'link', householdId, user.id, row.created_at, row.expires_at, role, label, token,
     );
+    await logEvent(householdId, 'invite_created', 'managers', { actor: user, data: { label, role } });
     return c.json(linkDto(c, home, row), 201);
   });
 
   app.delete('/api/households/:hid/invites/:id', async (c) => {
-    const { householdId } = await requireManager(c);
+    const { user, householdId } = await requireManager(c);
     const r = await db.run('UPDATE invites SET revoked = 1, token = NULL WHERE household_id = ? AND id = ? AND used_by IS NULL', householdId, c.req.param('id'));
     if (!r.changes) throw new HttpError(404, 'not_found');
+    const label = (await db.get<{ label: string | null }>('SELECT label FROM invites WHERE id = ?', c.req.param('id')))?.label ?? null;
+    await logEvent(householdId, 'invite_revoked', 'managers', { actor: user, data: { label } });
     return c.json({ ok: true });
   });
 
@@ -459,12 +501,14 @@ export async function createServer(options: ServerOptions) {
         sha256(`code:${newToken()}`), `inv_${randomUUID()}`, 'code', householdId, user.id, row.created_at, row.expires_at, code, sha256(code),
       );
     });
+    await logEvent(householdId, 'code_created', 'managers', { actor: user });
     return c.json({ code: `${code.slice(0, 4)}-${code.slice(4)}`, expiresAt: row.expires_at }, 201);
   });
 
   app.delete('/api/households/:hid/code', async (c) => {
-    const { householdId } = await requireManager(c);
+    const { user, householdId } = await requireManager(c);
     await db.run("UPDATE invites SET revoked = 1, code = NULL WHERE household_id = ? AND kind = 'code'", householdId);
+    await logEvent(householdId, 'code_revoked', 'managers', { actor: user });
     return c.json({ ok: true });
   });
 
@@ -494,11 +538,12 @@ export async function createServer(options: ServerOptions) {
     return { invite: row, home, status: status! };
   };
 
-  const joinNow = async (user: User, householdId: string, home: HomeApp, role: Role) => {
+  const joinNow = async (user: User, householdId: string, home: HomeApp, role: Role, approvedBy?: User) => {
     if (home.platform.acl.members(householdId).length >= 20) throw bad('household_full');
     await store.addMember(householdId, user, role);
     await insertSystem(householdId, { key: 'joined', params: { name: user.name } });
     hub.publish(householdId, { type: 'changed', area: 'members' });
+    await logEvent(householdId, 'member_joined', 'members', { actor: approvedBy ?? null, subject: user, data: { role } });
   };
   const latestRequest = (householdId: string, userId: string) =>
     db.get<{ id: string; status: string; decided_at: string | null }>(
@@ -506,10 +551,10 @@ export async function createServer(options: ServerOptions) {
       householdId,
       userId,
     );
-  const fileRequest = async (user: User, householdId: string, role: Role, via: string) => {
+  const fileRequest = async (user: User, householdId: string, role: Role, via: string, label: string | null = null) => {
     const existing = await latestRequest(householdId, user.id);
     if (existing?.status === 'pending') return;
-    if ((existing?.status === 'declined' || existing?.status === 'dismissed') && existing.decided_at && Date.now() - Date.parse(existing.decided_at) < 86_400_000) {
+    if (existing?.status === 'declined' && existing.decided_at && Date.now() - Date.parse(existing.decided_at) < 86_400_000) {
       throw new HttpError(403, 'request_declined');
     }
     const pending = await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM join_requests WHERE household_id = ? AND status = 'pending'", householdId);
@@ -519,6 +564,7 @@ export async function createServer(options: ServerOptions) {
       `jr_${randomUUID()}`, householdId, user.id, role, via, 'pending', now(),
     );
     hub.publish(householdId, { type: 'changed', area: 'requests' });
+    await logEvent(householdId, 'join_requested', 'managers', { subject: user, data: { via: via === 'code' ? 'code' : 'link', role, label } });
   };
 
   type JoinResult = { status: 'member' | 'joined' | 'pending'; householdId?: string; householdName: string };
@@ -540,7 +586,7 @@ export async function createServer(options: ServerOptions) {
     }
     const role = (invite.role as Role | null) ?? joinRoles(home, householdId)[0]!;
     const approval = needsApproval(home, householdId);
-    if (approval) await fileRequest(user, householdId, role, `link:${invite.id}`);
+    if (approval) await fileRequest(user, householdId, role, `link:${invite.id}`, invite.label);
     // Claim the link; if someone else claimed it a moment earlier, it's used.
     const claimed = await db.run('UPDATE invites SET used_by = ?, used_at = ?, token = NULL WHERE id = ? AND used_by IS NULL', user.id, now(), invite.id);
     if (!claimed.changes) throw new HttpError(410, 'invite_used');
@@ -627,7 +673,9 @@ export async function createServer(options: ServerOptions) {
       const role = data.role === undefined ? (joinRoles(home, householdId).includes(row.role as Role) ? (row.role as Role) : joinRoles(home, householdId)[0]!) : pickRole(home, householdId, data.role);
       const newcomer = await auth.getUser(row.user_id);
       if (!newcomer) throw new HttpError(404, 'not_found');
-      if (!home.platform.acl.roleOf(newcomer.id, householdId)) await joinNow(newcomer, householdId, home, role);
+      if (!home.platform.acl.roleOf(newcomer.id, householdId)) await joinNow(newcomer, householdId, home, role, user);
+    } else {
+      await logEvent(householdId, 'request_declined', 'managers', { actor: user, subject: { id: row.user_id, name: (await auth.getUser(row.user_id))?.name ?? '' } });
     }
     await db.run(
       'UPDATE join_requests SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?',
@@ -640,18 +688,28 @@ export async function createServer(options: ServerOptions) {
     return c.json({ ok: true });
   });
 
-  /** The requester's own requests, shown on the start screen while they wait. */
+  /**
+   * The requester's own requests: waiting ones, and decisions they haven't
+   * seen yet (so they're told when they're let in or turned down).
+   */
   const myRequests = async (userId: string) => {
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    const rows = await db.all<{ id: string; status: string; created_at: string; name: string }>(
-      `SELECT r.id, r.status, r.created_at, h.name FROM join_requests r JOIN households h ON h.id = r.household_id
-       WHERE r.user_id = ? AND (r.status = 'pending' OR (r.status = 'declined' AND r.decided_at > ?)) ORDER BY r.created_at DESC`,
+    const rows = await db.all<{ id: string; household_id: string; status: string; created_at: string; name: string }>(
+      `SELECT r.id, r.household_id, r.status, r.created_at, h.name FROM join_requests r JOIN households h ON h.id = r.household_id
+       WHERE r.user_id = ? AND (r.status = 'pending' OR (r.seen_at IS NULL AND r.decided_at > ?)) ORDER BY r.created_at DESC`,
       userId,
       weekAgo,
     );
-    return rows.map((r) => ({ id: r.id, householdName: r.name, status: r.status as 'pending' | 'declined', createdAt: r.created_at }));
+    return rows.map((r) => ({
+      id: r.id,
+      householdName: r.name,
+      householdId: r.status === 'approved' ? r.household_id : undefined,
+      status: r.status as 'pending' | 'approved' | 'declined',
+      createdAt: r.created_at,
+    }));
   };
 
+  /** Cancel a waiting request, or mark a decision as seen. */
   app.delete('/api/join-requests/:id', async (c) => {
     const user = requireUser(c);
     const row = await db.get<{ household_id: string; status: string }>('SELECT household_id, status FROM join_requests WHERE id = ? AND user_id = ?', c.req.param('id'), user.id);
@@ -659,10 +717,66 @@ export async function createServer(options: ServerOptions) {
     if (row.status === 'pending') {
       await db.run('DELETE FROM join_requests WHERE id = ?', c.req.param('id'));
       hub.publish(row.household_id, { type: 'changed', area: 'requests' });
+      await logEvent(row.household_id, 'request_cancelled', 'managers', { subject: user });
     } else {
-      // A declined request stays on record (it blocks asking again for a day); it is just hidden.
-      await db.run("UPDATE join_requests SET status = 'dismissed' WHERE id = ? AND status = 'declined'", c.req.param('id'));
+      // A declined request stays on record (it blocks asking again for a day); it is just marked seen.
+      await db.run('UPDATE join_requests SET seen_at = ? WHERE id = ?', now(), c.req.param('id'));
     }
+    return c.json({ ok: true });
+  });
+
+  // ── Inbox ────────────────────────────────────────────────────────────
+  type EventRow = { id: string; kind: string; audience: string; actor_id: string | null; subject_id: string | null; data: string; created_at: string };
+  const visibleEvents = (role: Role) => (MANAGER_ROLES.includes(role) ? ['members', 'managers'] : ['members']);
+  const readAt = async (userId: string, householdId: string) =>
+    (await db.get<{ read_at: string }>('SELECT read_at FROM inbox_reads WHERE user_id = ? AND household_id = ?', userId, householdId))?.read_at ?? '';
+  const unreadCount = async (userId: string, householdId: string, role: Role) => {
+    const audiences = visibleEvents(role);
+    const row = await db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM household_events WHERE household_id = ? AND created_at > ? AND (actor_id IS NULL OR actor_id <> ?)
+       AND (subject_id IS NULL OR subject_id <> ?) AND audience IN (${audiences.map(() => '?').join(', ')})`,
+      householdId, await readAt(userId, householdId), userId, userId, ...audiences,
+    );
+    return Number(row?.n ?? 0);
+  };
+
+  app.get('/api/households/:hid/inbox', async (c) => {
+    const { user, householdId, role } = await requireMember(c);
+    const audiences = visibleEvents(role);
+    const since = await readAt(user.id, householdId);
+    const rows = await db.all<EventRow>(
+      `SELECT * FROM household_events WHERE household_id = ? AND audience IN (${audiences.map(() => '?').join(', ')}) ORDER BY created_at DESC LIMIT 100`,
+      householdId, ...audiences,
+    );
+    return c.json({
+      readAt: since || null,
+      events: rows.map((r) => {
+        const data = JSON.parse(r.data) as Record<string, unknown>;
+        const mine = r.actor_id === user.id || r.subject_id === user.id;
+        return {
+          id: r.id,
+          kind: r.kind,
+          actorName: (data.actorName as string | null) ?? null,
+          subjectName: (data.subjectName as string | null) ?? null,
+          actorIsMe: r.actor_id === user.id,
+          subjectIsMe: r.subject_id === user.id,
+          label: (data.label as string | null) ?? null,
+          role: (data.role as string | null) ?? null,
+          via: (data.via as string | null) ?? null,
+          createdAt: r.created_at,
+          unread: !mine && r.created_at > since,
+        };
+      }),
+    });
+  });
+
+  app.post('/api/households/:hid/inbox/read', async (c) => {
+    const { user, householdId } = await requireMember(c);
+    const at = now();
+    await db.run(
+      'INSERT INTO inbox_reads (user_id, household_id, read_at) VALUES (?, ?, ?) ON CONFLICT (user_id, household_id) DO UPDATE SET read_at = excluded.read_at',
+      user.id, householdId, at,
+    );
     return c.json({ ok: true });
   });
 

@@ -207,6 +207,27 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
    );
    CREATE INDEX join_requests_household ON join_requests(household_id, status);
    CREATE INDEX join_requests_user ON join_requests(user_id)`,
+  // 5: the home inbox — what happened (joins, requests, invites, leaving) and
+  //    how far each person has read; requesters are told when they're decided.
+  () => `CREATE TABLE household_events (
+     id TEXT PRIMARY KEY,
+     household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+     kind TEXT NOT NULL,
+     audience TEXT NOT NULL,
+     actor_id TEXT,
+     subject_id TEXT,
+     data TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );
+   CREATE INDEX household_events_household ON household_events(household_id, created_at);
+   CREATE TABLE inbox_reads (
+     user_id TEXT NOT NULL,
+     household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+     read_at TEXT NOT NULL,
+     PRIMARY KEY (user_id, household_id)
+   );
+   ALTER TABLE join_requests ADD COLUMN seen_at TEXT;
+   UPDATE join_requests SET seen_at = decided_at, status = 'declined' WHERE status = 'dismissed'`,
 ];
 
 async function migrate(db: Database): Promise<void> {

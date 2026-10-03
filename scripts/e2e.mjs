@@ -139,14 +139,21 @@ try {
   step('a used link does not work for anyone else');
 
   await p.getByRole('link', { name: 'Chat' }).click();
-  await p.getByTestId('requests-dot').waitFor({ timeout: 5000 });
-  await p.getByTestId('requests-dot').click();
+  await p.getByTestId('inbox-count').waitFor({ timeout: 5000 });
+  await expect((await p.getByTestId('inbox-count').textContent()) === '1', 'one unread in the inbox');
+  await p.getByTestId('inbox-button').click();
   await p.getByTestId('join-requests').getByText(`an-${run}@example.com`).waitFor();
-  await shot(p, '05c-request');
+  await p.getByTestId('inbox-events').getByText('An đã dùng thư mời cho An và đang chờ duyệt').waitFor();
+  await p.getByTestId('sent-invites').getByText('An đang chờ duyệt').waitFor();
+  await shot(p, '05c-inbox');
   await p.getByTestId('join-requests').getByRole('button', { name: 'Đồng ý' }).click();
   await p.getByText('An đã vào nhà', { exact: true }).waitFor();
+  await p.getByTestId('sent-invites').getByText('An đã nhận').waitFor();
+  await p.getByTestId('inbox-events').getByText('Linh (bạn) đã cho An vào nhà (Ở chung)').waitFor();
+  await expect((await p.getByTestId('inbox-count').count()) === 0, 'inbox read once opened');
   await q.getByText('An đã vào nhà 🎉').waitFor({ timeout: 15000 });
-  step('Linh saw the request (dot on settings), let An in; An went straight into the home');
+  await q.getByText('Bạn đã vào “Nhà 12 Lê Lợi”!').waitFor();
+  step('Linh saw the request in the inbox (count on the icon), let An in; An was told and went straight in');
 
   // ── 4. Realtime chat ─────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Chat' }).click();

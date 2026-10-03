@@ -37,7 +37,7 @@ test('personal link: the newcomer asks, sees they are waiting, and the owner let
 
   const members = (await linh.get(`/api/households/${hid}`)).data.members as { name: string; role: string }[];
   assert.deepEqual(members.find((m) => m.name === 'Linh')?.role, 'child', 'the owner’s choice of role wins');
-  assert.equal((await linh.get('/api/me')).data.requests.length, 0);
+  assert.equal((await linh.get('/api/me')).data.requests[0].status, 'approved', 'told once that they got in');
   assert.equal((await linh.post(`/api/invites/${token}/accept`)).data.status, 'member');
   const links = (await tom.get(`/api/households/${hid}/invites`)).data.links as { id: string; status: string; usedBy: string; url: string | null }[];
   assert.deepEqual(links.map((l) => [l.id, l.status, l.usedBy, l.url]), [[id, 'used', 'Linh', null]]);

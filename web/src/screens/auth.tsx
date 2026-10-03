@@ -326,25 +326,6 @@ export function StartScreen({ session }: { session: Session }) {
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const known = useRef(new Set(session.households.map((h) => h.id)));
-  const waiting = session.requests.some((r) => r.status === 'pending');
-
-  // While a request waits for the owner, check now and then; go in once approved.
-  useEffect(() => {
-    if (!waiting) return;
-    const timer = setInterval(() => void session.refresh(), 8000);
-    const onFocus = () => void session.refresh();
-    window.addEventListener('focus', onFocus);
-    return () => (clearInterval(timer), window.removeEventListener('focus', onFocus));
-  }, [waiting]);
-  useEffect(() => {
-    const added = session.households.find((h) => !known.current.has(h.id));
-    if (added) {
-      toast(t('start.approved', { home: added.name }));
-      navigate(`/h/${added.id}/chat`, true);
-    }
-  }, [session.households]);
-
   const join = async (e: Event) => {
     e.preventDefault();
     if (!value.trim()) return setError(t('start.empty'));
@@ -357,7 +338,6 @@ export function StartScreen({ session }: { session: Session }) {
         await session.refresh();
         return;
       }
-      known.current.add(res.householdId);
       await session.refresh();
       navigate(`/h/${res.householdId}/chat`, true);
     } catch (err) {
@@ -377,7 +357,7 @@ export function StartScreen({ session }: { session: Session }) {
       <h1>{t('start.title', { name: session.user?.name.split(/\s+/)[0] ?? '' })}</h1>
       <p class="lead">{t('start.lead')}</p>
 
-      {session.requests.map((r) => (
+      {session.requests.filter((r) => r.status !== 'approved').map((r) => (
         <div key={r.id} class={`banner ${r.status === 'pending' ? 'info' : ''}`} role="status" data-testid="join-request">
           <span style={{ flex: 1 }}>
             {r.status === 'pending' ? t('start.waiting', { home: r.householdName }) : t('start.declined', { home: r.householdName })}

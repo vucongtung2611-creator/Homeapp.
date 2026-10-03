@@ -6,9 +6,10 @@ import { BillsScreen } from './screens/bills.js';
 import { ChatScreen } from './screens/chat.js';
 import { LibraryScreen } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
+import { InboxScreen } from './screens/inbox.js';
 import { CharacterAvatar } from './characters.js';
 import { onLocaleChange, t, tPick } from './i18n/index.js';
-import { ErrorState, Icon, Skeleton, Spinner, Toasts, useLoad } from './ui.js';
+import { ErrorState, Icon, Skeleton, Spinner, Toasts, toast, useLoad } from './ui.js';
 import { partOfDay } from './util.js';
 
 import { bindRouter, navigate, type Listener, type Live, type Session } from './router.js';
@@ -34,6 +35,40 @@ function App() {
     );
   }
   if (me.error || !session) return <ErrorState error={me.error} onRetry={() => me.reload()} />;
+  return <Routes path={path} session={session} />;
+}
+
+/**
+ * Requests to join a home: while one waits, check now and then; when the
+ * owner decides, say so once (and go in, if there's nowhere else to be).
+ */
+function useRequestNews(session: Session, path: string) {
+  const waiting = session.requests.some((r) => r.status === 'pending');
+  useEffect(() => {
+    if (!waiting || !session.user) return;
+    const timer = setInterval(() => void session.refresh(), 8000);
+    const onFocus = () => void session.refresh();
+    window.addEventListener('focus', onFocus);
+    return () => (clearInterval(timer), window.removeEventListener('focus', onFocus));
+  }, [waiting, session.user?.id]);
+  useEffect(() => {
+    const onStart = path.startsWith('/start') || path === '/';
+    for (const r of session.requests) {
+      if (r.status === 'approved') {
+        toast(t('start.approved', { home: r.householdName }));
+        void api('DELETE', `/api/join-requests/${r.id}`).then(() => session.refresh(), () => {});
+        if (onStart && r.householdId) navigate(`/h/${r.householdId}/chat`, true);
+      } else if (r.status === 'declined' && !onStart) {
+        // On the start screen it's shown as a note to dismiss instead.
+        toast(t('start.declined', { home: r.householdName }));
+        void api('DELETE', `/api/join-requests/${r.id}`).then(() => session.refresh(), () => {});
+      }
+    }
+  }, [session.requests]);
+}
+
+function Routes({ path, session }: { path: string; session: Session }) {
+  useRequestNews(session, path);
 
   const url = new URL(path, location.origin);
   const parts = url.pathname.split('/').filter(Boolean);
@@ -72,7 +107,7 @@ function Redirect({ to }: { to: string }) {
 }
 
 // ── Household shell with bottom tabs ─────────────────────────────────
-export type Tab = 'chat' | 'library' | 'bills' | 'settings';
+export type Tab = 'chat' | 'library' | 'bills' | 'settings' | 'inbox';
 
 
 /**
@@ -197,7 +232,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
     () =>
       live.on((e) => {
         if (e.type === 'message' && tab !== 'chat' && e.message?.userId !== session.user?.id) setUnread(true);
-        if (e.type === 'changed' && (e.area === 'members' || e.area === 'household' || e.area === 'requests')) home.reload(true);
+        if (e.type === 'changed' && (e.area === 'members' || e.area === 'household' || e.area === 'requests' || e.area === 'inbox')) home.reload(true);
       }),
     [tab, live],
   );
@@ -218,14 +253,14 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
     );
   }
   const h = home.data;
-  const titles: Record<Tab, string> = { chat: t('tabs.chat'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings') };
+  const titles: Record<Tab, string> = { chat: t('tabs.chat'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings'), inbox: t('inbox.title') };
   const firstName = session.user?.name.split(/\s+/)[0] ?? '';
   const subtitle = tab === 'chat' && h ? tPick(`greeting.${partOfDay()}`, greetingSeed, { name: firstName }) : (h?.name ?? ' ');
 
   return (
     <div class="app">
       <header class="topbar">
-        {tab === 'settings' ? (
+        {tab === 'settings' || tab === 'inbox' ? (
           <button class="icon-btn" aria-label={t('common.back')} onClick={() => (history.length > 1 ? history.back() : navigate(`/h/${householdId}/chat`))}>
             <Icon.back />
           </button>
@@ -235,14 +270,26 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
           {titles[tab]}
           <span class="sub">{subtitle}</span>
         </h1>
-        {tab !== 'settings' && (
+        {tab !== 'inbox' && (
           <button
             class="icon-btn has-dot"
-            aria-label={h?.pendingRequests ? t('requests.waitingAria', { count: h.pendingRequests }) : t('tabs.settingsAria')}
-            onClick={() => navigate(`/h/${householdId}/settings`)}
+            aria-label={h?.unreadInbox ? t('inbox.unreadAria', { count: h.unreadInbox }) : t('inbox.title')}
+            onClick={() => navigate(`/h/${householdId}/inbox`)}
+            data-testid="inbox-button"
           >
+            <Icon.inbox />
+            {h && h.unreadInbox > 0 ? (
+              <span class="count" data-testid="inbox-count">
+                {h.unreadInbox > 9 ? '9+' : h.unreadInbox}
+              </span>
+            ) : (
+              h && h.pendingRequests > 0 && <span class="dot" data-testid="inbox-dot" />
+            )}
+          </button>
+        )}
+        {tab !== 'settings' && (
+          <button class="icon-btn" aria-label={t('tabs.settingsAria')} onClick={() => navigate(`/h/${householdId}/settings`)}>
             <Icon.gear />
-            {Boolean(h?.pendingRequests) && <span class="dot" data-testid="requests-dot" />}
           </button>
         )}
       </header>
@@ -263,6 +310,8 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
         <LibraryScreen home={h} live={live} />
       ) : tab === 'bills' ? (
         <BillsScreen home={h} live={live} />
+      ) : tab === 'inbox' ? (
+        <InboxScreen home={h} live={live} reloadHome={() => home.reload(true)} />
       ) : (
         <SettingsScreen home={h} session={session} reloadHome={() => home.reload(true)} />
       )}

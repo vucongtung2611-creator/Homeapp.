@@ -92,6 +92,8 @@ export interface Household {
   pendingRequests: number;
   /** The owner may delete the home: they're alone and nothing real is in it. */
   canDelete: boolean;
+  /** Inbox entries this person hasn't seen yet. */
+  unreadInbox: number;
 }
 
 export interface InviteLink {
@@ -99,6 +101,8 @@ export interface InviteLink {
   label: string;
   role: string;
   status: 'pending' | 'used' | 'expired' | 'revoked';
+  /** For a used link: whether that person got in. */
+  outcome: 'accepted' | 'waiting' | 'declined' | 'left' | null;
   createdAt: string;
   expiresAt: string;
   invitedBy: string;
@@ -118,7 +122,9 @@ export interface Invites {
 export interface JoinRequest {
   id: string;
   householdName: string;
-  status: 'pending' | 'declined';
+  /** Set once approved, to go straight in. */
+  householdId?: string;
+  status: 'pending' | 'approved' | 'declined';
   createdAt: string;
 }
 
@@ -184,6 +190,8 @@ export interface Expense {
   shared: boolean;
   ownerId: string;
   canDelete: boolean;
+  /** Inbox entries this person hasn't seen yet. */
+  unreadInbox: number;
 }
 
 export interface Money {

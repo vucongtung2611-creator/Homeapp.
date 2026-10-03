@@ -25,7 +25,11 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
 
   return (
     <div class="page">
-      {isOwner && home.pendingRequests > 0 && <RequestsCard home={home} reloadHome={reloadHome} />}
+      {home.pendingRequests > 0 && (
+        <button class="banner info" style={{ width: '100%', border: 0, cursor: 'pointer', textAlign: 'left' }} onClick={() => navigate(`/h/${home.id}/inbox`)}>
+          {t('inbox.waitingBanner', { count: home.pendingRequests })}
+        </button>
+      )}
 
       <h2 class="section-title">{t('settings.invite')}</h2>
       <section class="card">
@@ -339,7 +343,7 @@ function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => v
               <span class="who">
                 {l.label || t('settings.someone')}
                 <span class="muted" style={{ display: 'block', fontSize: 14 }}>
-                  {l.status === 'used' ? t('settings.inviteUsedBy', { name: l.usedBy ?? '?' }) : t(l.status === 'expired' ? 'settings.inviteStatus.expired' : 'settings.inviteStatus.revoked')}
+                  {l.status === 'used' ? (l.outcome === 'waiting' ? t('inbox.inviteWaiting', { name: l.usedBy ?? '?' }) : t('settings.inviteUsedBy', { name: l.usedBy ?? '?' })) : t(l.status === 'expired' ? 'settings.inviteStatus.expired' : 'settings.inviteStatus.revoked')}
                 </span>
               </span>
             </div>
@@ -422,68 +426,3 @@ function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => v
   );
 }
 
-/** People who used the short code and wait for the owner to let them in. */
-function RequestsCard({ home, reloadHome }: { home: Household; reloadHome: () => void }) {
-  type Request = { id: string; name: string; email: string; avatar: string | null; role: string; via: 'code' | 'link'; inviteLabel: string; createdAt: string };
-  const list = useLoad(() => api<{ requests: Request[]; roles: string[] }>('GET', `/api/households/${home.id}/requests`), [home.id, home.pendingRequests]);
-  const [busy, setBusy] = useState<string>();
-  const [roles, setRoles] = useState<Record<string, string>>({});
-  const decide = async (r: Request, decision: 'approve' | 'decline') => {
-    if (decision === 'decline' && !confirm(t('requests.declineConfirm', { name: r.name }))) return;
-    setBusy(r.id);
-    try {
-      await api('POST', `/api/households/${home.id}/requests/${r.id}/${decision}`, decision === 'approve' ? { role: roles[r.id] ?? r.role } : {});
-      toast(decision === 'approve' ? t('requests.approved', { name: r.name }) : t('requests.declined', { name: r.name }));
-      reloadHome();
-    } catch (err) {
-      toastError(err);
-    } finally {
-      setBusy(undefined);
-    }
-  };
-  return (
-    <>
-      <h2 class="section-title">{t('requests.title')}</h2>
-      <section class="card" data-testid="join-requests">
-        {(list.data?.requests ?? []).map((r) => (
-          <div class="request" key={r.id}>
-            <CharacterAvatar id={r.avatar ?? undefined} size={40} mood="still" />
-            <span class="who">
-              {r.name}
-              <span class="muted" style={{ display: 'block', fontSize: 14 }}>
-                {r.email}
-              </span>
-              <span class="muted" style={{ display: 'block', fontSize: 14 }}>
-                {r.via === 'code' ? t('requests.viaCode') : t('requests.viaLink', { name: r.inviteLabel || t('settings.someone') })} · {formatDate(r.createdAt, 'short')}
-              </span>
-              {(list.data?.roles.length ?? 0) > 1 && (
-                <select
-                  class="input"
-                  style={{ marginTop: 6 }}
-                  aria-label={t('settings.inviteRole')}
-                  value={roles[r.id] ?? r.role}
-                  onChange={(e) => setRoles({ ...roles, [r.id]: e.currentTarget.value })}
-                >
-                  {list.data!.roles.map((x) => (
-                    <option key={x} value={x}>
-                      {roleLabel(x)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </span>
-            <span class="actions">
-              <button class="btn small" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>
-                {t('requests.approve')}
-              </button>
-              <button class="btn small ghost" disabled={busy === r.id} onClick={() => decide(r, 'decline')}>
-                {t('requests.decline')}
-              </button>
-            </span>
-          </div>
-        ))}
-        {list.loading && !list.data && <Spinner />}
-      </section>
-    </>
-  );
-}
