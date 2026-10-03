@@ -26,6 +26,8 @@ export interface Live {
 export interface Session {
   user: { id: string; email: string; name: string; avatar: string } | null;
   households: { id: string; name: string; role: string }[];
+  /** Requests to join a home that are waiting for (or were refused by) its owner. */
+  requests: import('./api.js').JoinRequest[];
   /** Server settings, e.g. how long chat stays connected without activity. */
   config?: { chatIdleMinutes: number };
   refresh: () => Promise<void>;

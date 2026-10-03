@@ -27,6 +27,15 @@ export class AuthError extends Error {
 export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 export const newToken = () => randomBytes(32).toString('base64url');
 
+/** Short invite codes: 8 characters without look-alikes (no I, O, 0, 1) → 32^8 ≈ 10^12 combinations. */
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const newInviteCode = () => Array.from(randomBytes(8), (b) => CODE_ALPHABET[b % 32]).join('');
+/** "abcd efgh", "ABCD-EFGH" → "ABCDEFGH"; anything else → undefined. */
+export const normalizeInviteCode = (raw: string) => {
+  const code = raw.toUpperCase().replace(/[\s-]/g, '');
+  return /^[A-Z2-9]{8}$/.test(code) ? code : undefined;
+};
+
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
   const key = await scryptAsync(password, salt, 64, SCRYPT);
@@ -183,6 +192,12 @@ export class RateLimiter {
     }
     entry.count++;
     return entry.count <= this.limit;
+  }
+
+  /** True when the key has used up its allowance (without counting a hit). */
+  blocked(key: string): boolean {
+    const entry = this.hits.get(key);
+    return Boolean(entry && entry.resetAt > Date.now() && entry.count >= this.limit);
   }
 
   private sweep(now: number): void {

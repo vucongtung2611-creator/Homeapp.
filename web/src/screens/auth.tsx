@@ -1,13 +1,13 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { DEFAULT_CHARACTER, MASCOT } from '../../../src/characters.js';
-import { api, ApiError } from '../api.js';
+import { api, ApiError, type JoinRequest } from '../api.js';
 import { CharacterAvatar, CharacterPicker } from '../characters.js';
 import { currencyName, getLocale, t } from '../i18n/index.js';
 import { Illustration } from '../illustrations.js';
 import { LanguageSwitch } from '../language.js';
 import { navigate, type Session } from '../router.js';
-import { Spinner, useLoad } from '../ui.js';
+import { Spinner, toast, toastError, useLoad } from '../ui.js';
 import { errorText } from '../util.js';
 
 const Logo = () => <img class="logo" src="/icon-192.png" alt="" width={56} height={56} />;
@@ -196,7 +196,7 @@ function safeNext(next?: string): string | undefined {
 export function JoinScreen({ token, session }: { token: string; session: Session }) {
   const invite = useLoad(
     () =>
-      api<{ householdName: string; inviterName: string; alreadyMember: boolean; householdId?: string }>(
+      api<{ householdName: string; inviterName: string; label: string; needsApproval: boolean; alreadyMember: boolean; householdId?: string }>(
         'GET',
         `/api/invites/${encodeURIComponent(token)}`,
       ),
@@ -205,13 +205,21 @@ export function JoinScreen({ token, session }: { token: string; session: Session
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Remember the link until it's used, so signing in by another route still ends up here.
+  useEffect(() => {
+    if (invite.error || invite.data?.alreadyMember) rememberInvite(undefined);
+    else if (!session.user) rememberInvite(token);
+  }, [token, invite.error, invite.data, session.user?.id]);
+
   const accept = async () => {
     setBusy(true);
     setError('');
     try {
-      const res = await api<{ householdId: string }>('POST', `/api/invites/${encodeURIComponent(token)}/accept`);
+      const res = await api<JoinResult>('POST', `/api/invites/${encodeURIComponent(token)}/accept`);
+      rememberInvite(undefined);
       await session.refresh();
-      navigate(`/h/${res.householdId}/chat`, true);
+      // Waiting for the owner: the start screen shows the request and goes in once approved.
+      navigate(res.status === 'pending' ? '/start' : `/h/${res.householdId}/chat`, true);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -243,9 +251,15 @@ export function JoinScreen({ token, session }: { token: string; session: Session
           </div>
           <h2>{t('join.invalidTitle')}</h2>
           <p>{errorText(invite.error)}</p>
-          <button class="btn secondary" onClick={() => navigate('/')}>
-            {t('common.goHome')}
-          </button>
+          {session.user ? (
+            <button class="btn secondary" onClick={() => navigate('/start')}>
+              {t('join.tryCode')}
+            </button>
+          ) : (
+            <button class="btn secondary" onClick={() => navigate('/')}>
+              {t('common.goHome')}
+            </button>
+          )}
         </div>
       </Frame>
     );
@@ -261,8 +275,9 @@ export function JoinScreen({ token, session }: { token: string; session: Session
       ) : session.user ? (
         <>
           <button class="btn block" onClick={accept} disabled={busy}>
-            {busy ? <Spinner /> : t('join.joinAs', { name: session.user.name })}
+            {busy ? <Spinner /> : data.needsApproval ? t('join.askAs', { name: session.user.name }) : t('join.joinAs', { name: session.user.name })}
           </button>
+          {data.needsApproval && <p class="hint">{t('join.approvalNote')}</p>}
           {error && (
             <p class="error-text" role="alert">
               {error}
@@ -276,6 +291,152 @@ export function JoinScreen({ token, session }: { token: string; session: Session
           </p>
           <AuthScreen mode="signup" session={session} compact />
         </>
+      )}
+    </Frame>
+  );
+}
+
+type JoinResult = { status: 'member' | 'joined'; householdId: string; householdName: string } | { status: 'pending'; householdId?: undefined; householdName: string };
+
+// ── After signing up: join a home or create one ───────────────────────
+const PENDING_INVITE = 'homeapp:pending-invite';
+function rememberInvite(token: string | undefined) {
+  try {
+    if (token) localStorage.setItem(PENDING_INVITE, JSON.stringify({ token, at: Date.now() }));
+    else localStorage.removeItem(PENDING_INVITE);
+  } catch {}
+}
+/** An invite link opened in the last day that hasn't been used yet. */
+export function pendingInvite(): string | undefined {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PENDING_INVITE) ?? 'null') as { token?: string; at?: number } | null;
+    if (saved?.token && Date.now() - (saved.at ?? 0) < 86_400_000) return saved.token;
+    localStorage.removeItem(PENDING_INVITE);
+  } catch {}
+  return undefined;
+}
+
+
+
+/**
+ * Shown after signing up (and whenever someone has no home yet), and from
+ * Settings to add another home. Never creates a home by itself.
+ */
+export function StartScreen({ session }: { session: Session }) {
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const known = useRef(new Set(session.households.map((h) => h.id)));
+  const waiting = session.requests.some((r) => r.status === 'pending');
+
+  // While a request waits for the owner, check now and then; go in once approved.
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => void session.refresh(), 8000);
+    const onFocus = () => void session.refresh();
+    window.addEventListener('focus', onFocus);
+    return () => (clearInterval(timer), window.removeEventListener('focus', onFocus));
+  }, [waiting]);
+  useEffect(() => {
+    const added = session.households.find((h) => !known.current.has(h.id));
+    if (added) {
+      toast(t('start.approved', { home: added.name }));
+      navigate(`/h/${added.id}/chat`, true);
+    }
+  }, [session.households]);
+
+  const join = async (e: Event) => {
+    e.preventDefault();
+    if (!value.trim()) return setError(t('start.empty'));
+    setBusy(true);
+    setError('');
+    try {
+      const res = await api<JoinResult>('POST', '/api/join', { invite: value });
+      if (res.status === 'pending') {
+        setValue('');
+        await session.refresh();
+        return;
+      }
+      known.current.add(res.householdId);
+      await session.refresh();
+      navigate(`/h/${res.householdId}/chat`, true);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dismiss = (r: JoinRequest) =>
+    api('DELETE', `/api/join-requests/${r.id}`)
+      .then(() => session.refresh())
+      .catch(toastError);
+
+  return (
+    <Frame back={session.households.length ? () => navigate('/') : undefined}>
+      <h1>{t('start.title', { name: session.user?.name.split(/\s+/)[0] ?? '' })}</h1>
+      <p class="lead">{t('start.lead')}</p>
+
+      {session.requests.map((r) => (
+        <div key={r.id} class={`banner ${r.status === 'pending' ? 'info' : ''}`} role="status" data-testid="join-request">
+          <span style={{ flex: 1 }}>
+            {r.status === 'pending' ? t('start.waiting', { home: r.householdName }) : t('start.declined', { home: r.householdName })}
+          </span>
+          <button class="btn ghost small" onClick={() => dismiss(r)}>
+            {r.status === 'pending' ? t('start.cancelRequest') : t('start.hide')}
+          </button>
+        </div>
+      ))}
+
+      <section class="card stack">
+        <h2>{t('start.joinTitle')}</h2>
+        <p class="muted">{t('start.joinText')}</p>
+        <form onSubmit={join} noValidate class="stack">
+          <input
+            class="input"
+            name="invite"
+            aria-label={t('start.joinTitle')}
+            placeholder={t('start.joinPlaceholder')}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellcheck={false}
+            value={value}
+            onInput={(e) => setValue(e.currentTarget.value)}
+          />
+          {error && (
+            <p class="error-text" role="alert" style={{ margin: 0 }}>
+              {error}
+            </p>
+          )}
+          <button class="btn block" type="submit" disabled={busy}>
+            {busy ? <Spinner /> : t('start.joinButton')}
+          </button>
+        </form>
+      </section>
+
+      <p class="or">{t('start.or')}</p>
+
+      <section class="card stack">
+        <h2>{t('start.createTitle')}</h2>
+        <p class="muted">{t('start.createText')}</p>
+        <button class="btn block secondary" data-testid="start-create" onClick={() => navigate('/new')}>
+          {t('start.createButton')}
+        </button>
+      </section>
+
+      {!session.households.length && (
+        <button
+          class="btn block ghost"
+          style={{ marginTop: 16 }}
+          onClick={() =>
+            api('POST', '/api/auth/logout')
+              .then(() => session.refresh())
+              .then(() => navigate('/', true))
+              .catch(toastError)
+          }
+        >
+          {t('settings.logout')}
+        </button>
       )}
     </Frame>
   );
@@ -324,7 +485,7 @@ export function CreateHomeScreen({ session }: { session: Session }) {
   };
 
   return (
-    <Frame back={session.households.length > 0 ? () => history.back() : undefined}>
+    <Frame back={() => (history.length > 1 ? history.back() : navigate('/start'))}>
       <h1>{t('create.title')}</h1>
       <p class="lead">{t('create.lead')}</p>
       <form onSubmit={submit}>

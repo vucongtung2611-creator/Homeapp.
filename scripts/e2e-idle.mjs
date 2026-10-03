@@ -44,8 +44,10 @@ try {
   const idleMs = config.chatIdleMinutes * 60_000;
   if (idleMs > 10_000) throw new Error(`start the server with a short CHAT_IDLE_MINUTES (got ${config.chatIdleMinutes})`);
   const { id } = await a.call('POST', '/api/households', { name: 'Idle test', samples: false });
-  const { url } = await a.call('POST', `/api/households/${id}/invite`, {});
+  const { url } = await a.call('POST', `/api/households/${id}/invites`, {});
   await b.call('POST', `/api/invites/${url.split('/join/')[1]}/accept`, {});
+  const { requests } = await a.call('GET', `/api/households/${id}/requests`);
+  await a.call('POST', `/api/households/${id}/requests/${requests[0].id}/approve`, {});
 
   await a.page.goto(`${BASE}/h/${id}/chat`);
   await live(a.page, 'live');

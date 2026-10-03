@@ -11,7 +11,7 @@ test('outsiders cannot see or touch a household (404, not 403)', async () => {
     assert.equal((await stranger.get(`/api/households/${hid}${path}`)).status, 404, path);
   }
   assert.equal((await stranger.post(`/api/households/${hid}/messages`, { text: 'hi' })).status, 404);
-  assert.equal((await stranger.post(`/api/households/${hid}/invite`)).status, 404);
+  assert.equal((await stranger.post(`/api/households/${hid}/invites`)).status, 404);
   assert.equal((await new Client(server).get(`/api/households/${hid}`)).status, 403); // not signed in
 });
 

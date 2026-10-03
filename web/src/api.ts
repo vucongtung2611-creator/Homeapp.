@@ -86,6 +86,40 @@ export interface Household {
   members: Member[];
   hasSamples: boolean;
   canInvite: boolean;
+  /** Whether the short code only asks to join (the owner approves). */
+  approveJoins: boolean;
+  /** Join requests waiting for the owner (0 for everyone else). */
+  pendingRequests: number;
+  /** The owner may delete the home: they're alone and nothing real is in it. */
+  canDelete: boolean;
+}
+
+export interface InviteLink {
+  id: string;
+  label: string;
+  role: string;
+  status: 'pending' | 'used' | 'expired' | 'revoked';
+  createdAt: string;
+  expiresAt: string;
+  invitedBy: string;
+  usedBy: string | null;
+  usedAt: string | null;
+  /** Only while it can still be used. */
+  url: string | null;
+}
+
+export interface Invites {
+  code: { code: string; expiresAt: string } | null;
+  links: InviteLink[];
+  roles: string[];
+  approveJoins: boolean;
+}
+
+export interface JoinRequest {
+  id: string;
+  householdName: string;
+  status: 'pending' | 'declined';
+  createdAt: string;
 }
 
 export interface Message {

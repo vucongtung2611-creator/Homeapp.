@@ -36,3 +36,15 @@ export function clearSamples(app: HomeApp, householdId: string): number {
 export function hasSamples(app: HomeApp, householdId: string): boolean {
   return app.platform.graph.find((n) => n.householdId === householdId && n.props.sample === true).length > 0;
 }
+
+/** Anything a person made themselves (not the home, its people or the samples)? */
+export function hasRealContent(app: HomeApp, householdId: string): boolean {
+  const graph = app.platform.graph;
+  return graph
+    .find((n) => n.householdId === householdId && n.type !== 'home' && n.type !== 'person' && n.props.sample !== true)
+    .some(
+      (n) =>
+        n.type !== 'task' ||
+        !graph.neighbors(n.id, { relation: 'about', direction: 'out' }).every((target) => target.props.sample === true),
+    );
+}

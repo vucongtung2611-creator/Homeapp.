@@ -1,7 +1,7 @@
 import { render } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { api, type Household, type User } from './api.js';
-import { AuthScreen, CreateHomeScreen, JoinScreen, WelcomeScreen } from './screens/auth.js';
+import { AuthScreen, CreateHomeScreen, JoinScreen, StartScreen, WelcomeScreen, pendingInvite } from './screens/auth.js';
 import { BillsScreen } from './screens/bills.js';
 import { ChatScreen } from './screens/chat.js';
 import { LibraryScreen } from './screens/library.js';
@@ -23,7 +23,7 @@ export const rememberHome = (id: string) => {
 function App() {
   const [path, setP] = useState(location.pathname + location.search);
   bindRouter(setP);
-  const me = useLoad(() => api<{ user: User | null; households: Session['households']; config?: Session['config'] }>('GET', '/api/me'), []);
+  const me = useLoad(() => api<{ user: User | null; households: Session['households']; requests: Session['requests']; config?: Session['config'] }>('GET', '/api/me'), []);
   const session: Session | undefined = me.data && { ...me.data, refresh: () => me.reload(true) as Promise<void> };
 
   if (me.loading && !me.data) {
@@ -48,18 +48,22 @@ function App() {
     if (parts.length) return <Redirect to={`/login?next=${encodeURIComponent(url.pathname)}`} />;
     return <WelcomeScreen />;
   }
+  // Opened an invite link, then signed in some other way: finish joining first.
+  const invite = pendingInvite();
+  if (invite && parts[0] !== 'join') return <Redirect to={`/join/${invite}`} />;
   if (parts[0] === 'new') return <CreateHomeScreen session={session} />;
+  if (parts[0] === 'start') return <StartScreen session={session} />;
   if (parts[0] === 'h' && parts[1]) {
     const tab = (parts[2] ?? 'chat') as Tab;
     return <HomeShell key={parts[1]} householdId={parts[1]} tab={tab} session={session} />;
   }
-  // "/" for a signed-in user: last home, first home, or create one.
+  // "/" for a signed-in user: last home, first home, or choose to join or create one.
   let last: string | null = null;
   try {
     last = localStorage.getItem(LAST_HOME);
   } catch {}
   const target = session.households.find((h) => h.id === last) ?? session.households[0];
-  return <Redirect to={target ? `/h/${target.id}/chat` : '/new'} />;
+  return <Redirect to={target ? `/h/${target.id}/chat` : '/start'} />;
 }
 
 function Redirect({ to }: { to: string }) {
@@ -193,7 +197,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
     () =>
       live.on((e) => {
         if (e.type === 'message' && tab !== 'chat' && e.message?.userId !== session.user?.id) setUnread(true);
-        if (e.type === 'changed' && (e.area === 'members' || e.area === 'household')) home.reload(true);
+        if (e.type === 'changed' && (e.area === 'members' || e.area === 'household' || e.area === 'requests')) home.reload(true);
       }),
     [tab, live],
   );
@@ -232,8 +236,13 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
           <span class="sub">{subtitle}</span>
         </h1>
         {tab !== 'settings' && (
-          <button class="icon-btn" aria-label={t('tabs.settingsAria')} onClick={() => navigate(`/h/${householdId}/settings`)}>
+          <button
+            class="icon-btn has-dot"
+            aria-label={h?.pendingRequests ? t('requests.waitingAria', { count: h.pendingRequests }) : t('tabs.settingsAria')}
+            onClick={() => navigate(`/h/${householdId}/settings`)}
+          >
             <Icon.gear />
+            {Boolean(h?.pendingRequests) && <span class="dot" data-testid="requests-dot" />}
           </button>
         )}
       </header>

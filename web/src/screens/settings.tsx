@@ -1,14 +1,13 @@
-import { useState } from 'preact/hooks';
-import { api, type Household } from '../api.js';
+import { useEffect, useState } from 'preact/hooks';
+import { api, type Household, type InviteLink, type Invites } from '../api.js';
 import { CharacterAvatar, CharacterPicker } from '../characters.js';
 import { formatDate, t } from '../i18n/index.js';
 import { LanguageSwitch } from '../language.js';
 import { navigate, type Session } from '../router.js';
-import { Spinner, toast, toastError } from '../ui.js';
+import { Spinner, toast, toastError, useLoad } from '../ui.js';
 import { roleLabel } from '../util.js';
 
 export function SettingsScreen({ home, session, reloadHome }: { home: Household; session: Session; reloadHome: () => void }) {
-  const [invite, setInvite] = useState<{ url: string; expiresAt: string }>();
   const [busy, setBusy] = useState<string>();
   const me = home.me;
   const isOwner = me.role === 'owner';
@@ -24,78 +23,18 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
     }
   };
 
-  const copy = async () => {
-    if (!invite) return;
-    try {
-      await navigator.clipboard.writeText(invite.url);
-      toast(t('settings.copied'));
-    } catch {
-      toast(t('settings.copyFallback'));
-    }
-  };
-  const share = async () => {
-    if (!invite) return;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: home.name, text: t('settings.shareText', { home: home.name, url: invite.url }), url: invite.url });
-        return;
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') return;
-      }
-    }
-    await copy();
-  };
-
   return (
     <div class="page">
+      {isOwner && home.pendingRequests > 0 && <RequestsCard home={home} reloadHome={reloadHome} />}
+
       <h2 class="section-title">{t('settings.invite')}</h2>
       <section class="card">
-        {!home.canInvite ? (
+        {home.canInvite ? (
+          <InviteCard home={home} reloadHome={reloadHome} />
+        ) : (
           <p class="muted" style={{ margin: 0 }}>
             {t('settings.inviteNotAllowed')}
           </p>
-        ) : invite ? (
-          <>
-            <p style={{ margin: 0 }}>{t('settings.inviteShare')}</p>
-            <div class="link-box" data-testid="invite-link">
-              {invite.url}
-            </div>
-            <div class="row">
-              <button class="btn" onClick={share}>
-                {t('settings.share')}
-              </button>
-              <button class="btn secondary" onClick={copy}>
-                {t('settings.copy')}
-              </button>
-            </div>
-            <p class="hint">
-              {t('settings.inviteExpires', { date: formatDate(invite.expiresAt, 'medium') })}{' '}
-              <button
-                class="btn ghost small"
-                style={{ padding: 0, minHeight: 0, textDecoration: 'underline' }}
-                onClick={() =>
-                  run('revoke', async () => {
-                    await api('DELETE', `/api/households/${home.id}/invite`);
-                    setInvite(undefined);
-                    toast(t('settings.revoked'));
-                  })
-                }
-              >
-                {t('settings.revoke')}
-              </button>
-            </p>
-          </>
-        ) : (
-          <>
-            <p style={{ marginTop: 0 }}>{t('settings.inviteIntro')}</p>
-            <button
-              class="btn block"
-              onClick={() => run('invite', async () => setInvite(await api('POST', `/api/households/${home.id}/invite`)))}
-              disabled={busy === 'invite'}
-            >
-              {busy === 'invite' ? <Spinner /> : t('settings.createInvite')}
-            </button>
-          </>
         )}
       </section>
 
@@ -187,7 +126,7 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
             {h.id === home.id && <span class="badge ok">{t('settings.current')}</span>}
           </button>
         ))}
-        <button class="btn block secondary" style={{ marginTop: 12 }} onClick={() => navigate('/new')}>
+        <button class="btn block secondary" style={{ marginTop: 12 }} onClick={() => navigate('/start')}>
           {t('settings.newHome')}
         </button>
       </section>
@@ -212,6 +151,29 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
         >
           {t('settings.logout')}
         </button>
+        {home.canDelete && (
+          <>
+            <p class="hint" style={{ marginBottom: 0 }}>
+              {t('settings.deleteHint')}
+            </p>
+            <button
+              class="btn block ghost"
+              style={{ color: 'var(--danger)', marginTop: 8 }}
+              disabled={busy === 'delete'}
+              onClick={() => {
+                if (!confirm(t('settings.deleteConfirm', { home: home.name }))) return;
+                void run('delete', async () => {
+                  await api('DELETE', `/api/households/${home.id}`);
+                  await session.refresh();
+                  toast(t('settings.deleted'));
+                  navigate('/', true);
+                });
+              }}
+            >
+              {t('settings.deleteHome')}
+            </button>
+          </>
+        )}
         {!isOwner && (
           <button
             class="btn block ghost"
@@ -233,5 +195,295 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
         {t('settings.footer')}
       </p>
     </div>
+  );
+}
+
+/** Personal invite links (one per person, single use) and the shared code. */
+function InviteCard({ home, reloadHome }: { home: Household; reloadHome: () => void }) {
+  const data = useLoad(() => api<Invites>('GET', `/api/households/${home.id}/invites`), [home.id]);
+  const [label, setLabel] = useState('');
+  const [role, setRole] = useState('');
+  const [fresh, setFresh] = useState<InviteLink>();
+  const [busy, setBusy] = useState<string>();
+  const run = async (key: string, fn: () => Promise<void>) => {
+    setBusy(key);
+    try {
+      await fn();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  const copy = async (text: string, done: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(done);
+    } catch {
+      toast(t('settings.copyFallback'));
+    }
+  };
+  const share = async (link: InviteLink) => {
+    const text = t('settings.shareText', { home: home.name, url: link.url ?? '' });
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: home.name, text, url: link.url ?? undefined });
+        return;
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+      }
+    }
+    await copy(link.url ?? '', t('settings.copied'));
+  };
+
+  if (!data.data) return <Spinner />;
+  const { code, links, roles } = data.data;
+  const open = links.filter((l) => l.status === 'pending');
+  const past = links.filter((l) => l.status !== 'pending').slice(0, 8);
+
+  return (
+    <>
+      <p style={{ marginTop: 0 }}>{home.approveJoins ? t('settings.inviteIntroApprove') : t('settings.inviteIntro')}</p>
+      <form
+        class="stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run('create', async () => {
+            const link = await api<InviteLink>('POST', `/api/households/${home.id}/invites`, { label: label.trim() || undefined, role: role || undefined });
+            setFresh(link);
+            setLabel('');
+            data.reload(true);
+          });
+        }}
+      >
+        <input
+          class="input"
+          name="inviteLabel"
+          aria-label={t('settings.inviteFor')}
+          placeholder={t('settings.inviteFor')}
+          value={label}
+          maxLength={60}
+          onInput={(e) => setLabel(e.currentTarget.value)}
+        />
+        {roles.length > 1 && (
+          <select class="input" aria-label={t('settings.inviteRole')} value={role || roles[0]} onChange={(e) => setRole(e.currentTarget.value)}>
+            {roles.map((r) => (
+              <option key={r} value={r}>
+                {roleLabel(r)}
+              </option>
+            ))}
+          </select>
+        )}
+        <button class="btn block" type="submit" disabled={busy === 'create'}>
+          {busy === 'create' ? <Spinner /> : t('settings.createInvite')}
+        </button>
+      </form>
+
+      {fresh?.url && (
+        <div class="stack" style={{ marginTop: 14 }}>
+          <p style={{ margin: 0 }}>{t('settings.inviteReady', { name: fresh.label || t('settings.someone') })}</p>
+          <div class="link-box" data-testid="invite-link">
+            {fresh.url}
+          </div>
+          <div class="row">
+            <button class="btn" onClick={() => share(fresh)}>
+              {t('settings.share')}
+            </button>
+            <button class="btn secondary" onClick={() => copy(fresh.url!, t('settings.copied'))}>
+              {t('settings.copy')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {open.length > 0 && (
+        <>
+          <h3 class="subhead">{t('settings.openInvites')}</h3>
+          {open.map((l) => (
+            <div class="request" key={l.id} data-testid="open-invite">
+              <span class="who">
+                {l.label || t('settings.someone')}
+                <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+                  {roleLabel(l.role)} · {t('settings.inviteUntil', { date: formatDate(l.expiresAt, 'short') })}
+                </span>
+              </span>
+              <span class="actions">
+                <button class="btn small secondary" onClick={() => copy(l.url!, t('settings.copied'))}>
+                  {t('settings.copy')}
+                </button>
+                <button
+                  class="btn small ghost"
+                  disabled={busy === l.id}
+                  onClick={() => {
+                    if (!confirm(t('settings.cancelInviteConfirm', { name: l.label || t('settings.someone') }))) return;
+                    void run(l.id, async () => {
+                      await api('DELETE', `/api/households/${home.id}/invites/${l.id}`);
+                      if (fresh?.id === l.id) setFresh(undefined);
+                      data.reload(true);
+                      toast(t('settings.revoked'));
+                    });
+                  }}
+                >
+                  {t('settings.cancelInvite')}
+                </button>
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+      {past.length > 0 && (
+        <>
+          <h3 class="subhead">{t('settings.pastInvites')}</h3>
+          {past.map((l) => (
+            <div class="request" key={l.id}>
+              <span class="who">
+                {l.label || t('settings.someone')}
+                <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+                  {l.status === 'used' ? t('settings.inviteUsedBy', { name: l.usedBy ?? '?' }) : t(l.status === 'expired' ? 'settings.inviteStatus.expired' : 'settings.inviteStatus.revoked')}
+                </span>
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+
+      <h3 class="subhead">{t('settings.codeTitle')}</h3>
+      <p style={{ marginTop: 0 }}>{t('settings.codeIntro')}</p>
+      {code ? (
+        <>
+          <div class="code-box" data-testid="invite-code">
+            {code.code}
+          </div>
+          <div class="row" style={{ marginTop: 10 }}>
+            <button class="btn secondary" onClick={() => copy(code.code, t('settings.codeCopied'))}>
+              {t('settings.copyCode')}
+            </button>
+            <button
+              class="btn ghost"
+              disabled={busy === 'code'}
+              onClick={() => {
+                if (!confirm(t('settings.renewConfirm'))) return;
+                void run('code', async () => {
+                  await api('POST', `/api/households/${home.id}/code`);
+                  data.reload(true);
+                  toast(t('settings.renewed'));
+                });
+              }}
+            >
+              {t('settings.renew')}
+            </button>
+          </div>
+          <p class="hint">
+            {t('settings.inviteExpires', { date: formatDate(code.expiresAt, 'medium') })}{' '}
+            <button
+              class="btn ghost small"
+              style={{ padding: 0, minHeight: 0, textDecoration: 'underline' }}
+              onClick={() =>
+                run('code', async () => {
+                  await api('DELETE', `/api/households/${home.id}/code`);
+                  data.reload(true);
+                  toast(t('settings.codeOff'));
+                })
+              }
+            >
+              {t('settings.revoke')}
+            </button>
+          </p>
+        </>
+      ) : (
+        <button
+          class="btn block secondary"
+          disabled={busy === 'code'}
+          onClick={() =>
+            run('code', async () => {
+              await api('POST', `/api/households/${home.id}/code`);
+              data.reload(true);
+            })
+          }
+        >
+          {t('settings.makeCode')}
+        </button>
+      )}
+
+      {home.me.role === 'owner' && (
+        <label class="check" style={{ marginTop: 14 }}>
+          <input
+            type="checkbox"
+            checked={home.approveJoins}
+            onChange={(e) => {
+              const approveJoins = e.currentTarget.checked;
+              api('PATCH', `/api/households/${home.id}`, { approveJoins }).then(() => (reloadHome(), data.reload(true)), toastError);
+            }}
+          />
+          {t('settings.approveJoins')}
+        </label>
+      )}
+    </>
+  );
+}
+
+/** People who used the short code and wait for the owner to let them in. */
+function RequestsCard({ home, reloadHome }: { home: Household; reloadHome: () => void }) {
+  type Request = { id: string; name: string; email: string; avatar: string | null; role: string; via: 'code' | 'link'; inviteLabel: string; createdAt: string };
+  const list = useLoad(() => api<{ requests: Request[]; roles: string[] }>('GET', `/api/households/${home.id}/requests`), [home.id, home.pendingRequests]);
+  const [busy, setBusy] = useState<string>();
+  const [roles, setRoles] = useState<Record<string, string>>({});
+  const decide = async (r: Request, decision: 'approve' | 'decline') => {
+    if (decision === 'decline' && !confirm(t('requests.declineConfirm', { name: r.name }))) return;
+    setBusy(r.id);
+    try {
+      await api('POST', `/api/households/${home.id}/requests/${r.id}/${decision}`, decision === 'approve' ? { role: roles[r.id] ?? r.role } : {});
+      toast(decision === 'approve' ? t('requests.approved', { name: r.name }) : t('requests.declined', { name: r.name }));
+      reloadHome();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+  return (
+    <>
+      <h2 class="section-title">{t('requests.title')}</h2>
+      <section class="card" data-testid="join-requests">
+        {(list.data?.requests ?? []).map((r) => (
+          <div class="request" key={r.id}>
+            <CharacterAvatar id={r.avatar ?? undefined} size={40} mood="still" />
+            <span class="who">
+              {r.name}
+              <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+                {r.email}
+              </span>
+              <span class="muted" style={{ display: 'block', fontSize: 14 }}>
+                {r.via === 'code' ? t('requests.viaCode') : t('requests.viaLink', { name: r.inviteLabel || t('settings.someone') })} · {formatDate(r.createdAt, 'short')}
+              </span>
+              {(list.data?.roles.length ?? 0) > 1 && (
+                <select
+                  class="input"
+                  style={{ marginTop: 6 }}
+                  aria-label={t('settings.inviteRole')}
+                  value={roles[r.id] ?? r.role}
+                  onChange={(e) => setRoles({ ...roles, [r.id]: e.currentTarget.value })}
+                >
+                  {list.data!.roles.map((x) => (
+                    <option key={x} value={x}>
+                      {roleLabel(x)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </span>
+            <span class="actions">
+              <button class="btn small" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>
+                {t('requests.approve')}
+              </button>
+              <button class="btn small ghost" disabled={busy === r.id} onClick={() => decide(r, 'decline')}>
+                {t('requests.decline')}
+              </button>
+            </span>
+          </div>
+        ))}
+        {list.loading && !list.data && <Spinner />}
+      </section>
+    </>
   );
 }

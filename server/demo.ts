@@ -142,8 +142,10 @@ export async function seedDemo(base: string, lang: DemoLang = 'vi', now = new Da
 
   const { id: hid } = await tom.client.call('POST', '/api/households', { name: c.home, currency: c.currency, kind: 'share_house', samples: false });
   for (const p of [linh, minh, bao]) {
-    const { url } = await tom.client.call('POST', `/api/households/${hid}/invite`, {});
+    const { url } = await tom.client.call('POST', `/api/households/${hid}/invites`, { label: p.name });
     await p.client.call('POST', `/api/invites/${String(url).split('/join/')[1]}/accept`, {});
+    const { requests } = await tom.client.call('GET', `/api/households/${hid}/requests`);
+    await tom.client.call('POST', `/api/households/${hid}/requests/${requests[0].id}/approve`, {});
   }
   const say = ([who, text]: string[], fileId?: string) => by(who!).client.call('POST', `/api/households/${hid}/messages`, { text, fileId });
   const upload = (p: Person & { client: Client }, bytes: Uint8Array, name: string) =>

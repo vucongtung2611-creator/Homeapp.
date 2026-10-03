@@ -181,6 +181,32 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
      data ${d === 'postgres' ? 'BYTEA' : 'BLOB'} NOT NULL
    );
    CREATE UNIQUE INDEX messages_household_seq ON messages(household_id, seq)`,
+  // 4: personal single-use invite links with a role, one shared code that only
+  //    asks to join, and join requests the owner approves. Old shared links retire.
+  () => `UPDATE invites SET revoked = 1;
+   ALTER TABLE invites ADD COLUMN id TEXT;
+   ALTER TABLE invites ADD COLUMN kind TEXT NOT NULL DEFAULT 'link';
+   ALTER TABLE invites ADD COLUMN role TEXT;
+   ALTER TABLE invites ADD COLUMN label TEXT;
+   ALTER TABLE invites ADD COLUMN token TEXT;
+   ALTER TABLE invites ADD COLUMN code TEXT;
+   ALTER TABLE invites ADD COLUMN code_hash TEXT;
+   ALTER TABLE invites ADD COLUMN used_by TEXT;
+   ALTER TABLE invites ADD COLUMN used_at TEXT;
+   CREATE INDEX invites_code ON invites(code_hash);
+   CREATE TABLE join_requests (
+     id TEXT PRIMARY KEY,
+     household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     role TEXT NOT NULL,
+     via TEXT NOT NULL,
+     status TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     decided_at TEXT,
+     decided_by TEXT
+   );
+   CREATE INDEX join_requests_household ON join_requests(household_id, status);
+   CREATE INDEX join_requests_user ON join_requests(user_id)`,
 ];
 
 async function migrate(db: Database): Promise<void> {

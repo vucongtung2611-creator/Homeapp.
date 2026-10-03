@@ -93,6 +93,11 @@ try {
   await p.getByLabel('Mật khẩu').fill('mat khau that dai');
   await shot(p, '02-signup');
   await p.getByRole('button', { name: 'Tiếp tục' }).click();
+  // No home is made automatically: join with a link or code, or create one.
+  await p.getByRole('heading', { name: 'Chào Linh!' }).waitFor();
+  await p.getByRole('heading', { name: 'Vào nhà bằng link hoặc mã mời' }).waitFor();
+  await shot(p, '02b-start');
+  await p.getByRole('button', { name: 'Tạo nhà mới' }).click();
   await p.getByRole('heading', { name: 'Tạo nhà của bạn' }).waitFor();
   await p.getByLabel('Tên nhà').fill('Nhà 12 Lê Lợi');
   await p.getByRole('button', { name: 'Tạo nhà' }).click();
@@ -100,15 +105,17 @@ try {
   await shot(p, '03-chat-welcome');
   step('signup + create home → chat with welcome message');
 
-  // ── 2. Invite link ───────────────────────────────────────────────────
+  // ── 2. A personal invite link for An ────────────────────────────────
   await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await p.getByLabel('Mời ai? (ví dụ Linh)').fill('An');
   await p.getByRole('button', { name: 'Tạo link mời' }).click();
   const inviteUrl = (await p.getByTestId('invite-link').textContent()).trim();
   await expect(inviteUrl.includes('/join/'), 'invite link shown');
+  await p.getByTestId('open-invite').getByText('An').waitFor();
   await shot(p, '04-invite');
-  step(`invite link created`);
+  step('personal invite link created for An');
 
-  // ── 3. An opens the link, signs up, lands in the home ───────────────
+  // ── 3. An opens the link, signs up, waits; Linh lets An in ──────────
   const an = await person('an');
   const q = an.page;
   await q.goto(inviteUrl);
@@ -118,8 +125,28 @@ try {
   await q.getByLabel('Email').fill(`an-${run}@example.com`);
   await q.getByLabel('Mật khẩu').fill('mat khau cua an');
   await q.getByRole('button', { name: 'Tiếp tục' }).click();
-  await q.getByText('An đã vào nhà 🎉').waitFor();
-  step('An joined via invite link');
+  await q.getByText('Đã xin vào “Nhà 12 Lê Lợi”').waitFor();
+  await shot(q, '05b-waiting');
+  step('An used the link → waiting for approval, sees nothing of the home yet');
+
+  // The same link a second time: turned away.
+  const kim = await person('kim');
+  await kim.page.goto(inviteUrl);
+  await kim.page.getByText('Link mời này đã được dùng').waitFor();
+  await kim.context.close();
+  // That refusal is logged by the browser as a failed request; it's the expected answer.
+  for (let i = problems.length - 1; i >= 0; i--) if (problems[i].startsWith('[kim console]') && problems[i].includes('410')) problems.splice(i, 1);
+  step('a used link does not work for anyone else');
+
+  await p.getByRole('link', { name: 'Chat' }).click();
+  await p.getByTestId('requests-dot').waitFor({ timeout: 5000 });
+  await p.getByTestId('requests-dot').click();
+  await p.getByTestId('join-requests').getByText(`an-${run}@example.com`).waitFor();
+  await shot(p, '05c-request');
+  await p.getByTestId('join-requests').getByRole('button', { name: 'Đồng ý' }).click();
+  await p.getByText('An đã vào nhà', { exact: true }).waitFor();
+  await q.getByText('An đã vào nhà 🎉').waitFor({ timeout: 15000 });
+  step('Linh saw the request (dot on settings), let An in; An went straight into the home');
 
   // ── 4. Realtime chat ─────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Chat' }).click();
@@ -300,6 +327,7 @@ try {
     await page.locator('input[name=email]').fill(`tom-${locale}-${run}@example.com`);
     await page.locator('input[name=password]').fill('long enough pw');
     await page.locator('button[type=submit]').click();
+    await page.getByTestId('start-create').click();
     await page.locator('input[name=homeName]').fill('Amsterdam');
     await expect((await page.locator('select[name=currency]').inputValue()) === 'EUR', `${locale}: euro suggested`);
     await page.locator('form button[type=submit]').click();

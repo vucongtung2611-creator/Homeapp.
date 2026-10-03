@@ -65,18 +65,29 @@ export class Client {
 
 export const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xff, 0xd9]);
 
-/** Owner creates a home and the others join via the invite link. */
+/** Owner creates a home; each other person gets a personal invite link and the owner lets them in. */
 export async function houseOf(server: Server, names: string[], opts: { samples?: boolean; currency?: string } = {}) {
   const clients = names.map(() => new Client(server));
   const users = [];
   for (const [i, name] of names.entries()) users.push(await clients[i]!.signup(name));
-  const created = await clients[0]!.post('/api/households', { name: 'Nhà test', currency: opts.currency ?? 'VND', samples: opts.samples ?? false });
+  const owner = clients[0]!;
+  const created = await owner.post('/api/households', { name: 'Nhà test', currency: opts.currency ?? 'VND', samples: opts.samples ?? false });
   const hid = created.data.id as string;
-  const invite = await clients[0]!.post(`/api/households/${hid}/invite`);
-  const token = new URL(invite.data.url).pathname.split('/').pop()!;
-  for (const c of clients.slice(1)) {
-    const joined = await c.post(`/api/invites/${token}/accept`);
-    if (joined.status !== 200) throw new Error(`join failed: ${JSON.stringify(joined.data)}`);
+  for (const [i, c] of clients.slice(1).entries()) {
+    const invite = await owner.post(`/api/households/${hid}/invites`, { label: names[i + 1] });
+    const token = new URL(invite.data.url).pathname.split('/').pop()!;
+    const used = await c.post(`/api/invites/${token}/accept`);
+    if (used.data.status !== 'pending') throw new Error(`join failed: ${JSON.stringify(used.data)}`);
+    const requests = (await owner.get(`/api/households/${hid}/requests`)).data.requests as { id: string }[];
+    const approved = await owner.post(`/api/households/${hid}/requests/${requests[0]!.id}/approve`);
+    if (approved.status !== 200) throw new Error(`approve failed: ${JSON.stringify(approved.data)}`);
   }
-  return { hid, clients, users, token };
+  return { hid, clients, users };
+}
+
+/** A fresh personal invite link (token only). */
+export async function inviteToken(owner: Client, hid: string, body: Record<string, unknown> = {}) {
+  const res = await owner.post(`/api/households/${hid}/invites`, body);
+  if (res.status !== 201) throw new Error(`invite failed: ${JSON.stringify(res.data)}`);
+  return { token: new URL(res.data.url).pathname.split('/').pop()!, url: res.data.url as string, id: res.data.id as string };
 }

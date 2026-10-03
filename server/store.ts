@@ -116,6 +116,15 @@ export class HouseholdStore {
     await this.db.run('DELETE FROM memberships WHERE user_id = ? AND household_id = ?', userId, householdId);
   }
 
+  /** Delete a home and everything in it (memberships, messages, files… cascade). */
+  async remove(householdId: string): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.run('DELETE FROM file_data WHERE id IN (SELECT id FROM files WHERE household_id = ?)', householdId);
+      await tx.run('DELETE FROM households WHERE id = ?', householdId);
+    });
+    this.cache.delete(householdId);
+  }
+
   householdsOf(userId: string): Promise<HouseholdRow[]> {
     return this.db.all<HouseholdRow>(
       `SELECT h.id, h.name, m.role FROM memberships m JOIN households h ON h.id = m.household_id

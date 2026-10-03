@@ -81,31 +81,9 @@ test('expired sessions are rejected', async () => {
   assert.equal((await c.get('/api/me')).data.user, null);
 });
 
-test('invite links: join once, regenerate retires the old link, bad tokens fail', async () => {
+test('a member list after joining by personal invites', async () => {
   const server = await testServer();
-  const { hid, clients, token } = await houseOf(server, ['Linh', 'An']);
-  const preview = await new Client(server).get(`/api/invites/${token}`);
-  assert.deepEqual(Object.keys(preview.data).sort(), ['alreadyMember', 'householdName', 'inviterName']);
-
-  const member = (await clients[0]!.get(`/api/households/${hid}`)).data.members;
-  assert.deepEqual(member.map((m: { name: string; role: string }) => [m.name, m.role]), [['Linh', 'owner'], ['An', 'tenant']]);
-
-  // Joining twice is harmless.
-  assert.equal((await clients[1]!.post(`/api/invites/${token}/accept`)).status, 200);
-  assert.equal((await clients[0]!.get(`/api/households/${hid}`)).data.members.length, 2);
-
-  await clients[0]!.post(`/api/households/${hid}/invite`); // new link
-  const late = new Client(server);
-  await late.signup('Late');
-  assert.equal((await late.post(`/api/invites/${token}/accept`)).status, 404);
-  assert.equal((await late.get('/api/invites/not-a-real-token-at-all-xx')).status, 404);
-
-  // Expired links fail.
-  const fresh = await clients[0]!.post(`/api/households/${hid}/invite`);
-  await server.db.run("UPDATE invites SET expires_at = '2000-01-01T00:00:00Z'");
-  const freshToken = new URL(fresh.data.url).pathname.split('/').pop()!;
-  assert.equal((await late.post(`/api/invites/${freshToken}/accept`)).status, 404);
-
-  // Accepting needs an account.
-  assert.equal((await new Client(server).post(`/api/invites/${freshToken}/accept`)).status, 403);
+  const { hid, clients } = await houseOf(server, ['Linh', 'An']);
+  const members = (await clients[0]!.get(`/api/households/${hid}`)).data.members;
+  assert.deepEqual(members.map((m: { name: string; role: string }) => [m.name, m.role]), [['Linh', 'owner'], ['An', 'tenant']]);
 });
