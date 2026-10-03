@@ -388,6 +388,33 @@ try {
   await q.getByRole('dialog').getByTestId('conv-group').click();
   step('conversations: private chat Linh ↔ An stays out of the group; Ella greets, saves a note to the Library, finds it and adds an appointment (simple commands, no AI)');
 
+  // ── Pinned note in the group chat; chores taking turns ───────────────
+  await p.getByRole('link', { name: 'Thư viện' }).click();
+  await p.locator('.list-item', { hasText: 'Mật khẩu wifi mới là mate2026' }).click();
+  await p.getByTestId('pin-toggle').click();
+  await p.getByText('Đã ghim lên đầu nhóm chat').waitFor();
+  await p.getByRole('button', { name: 'Đóng' }).click();
+  await q.getByTestId('pinned').getByRole('button', { name: /Mật khẩu wifi mới là mate2026/ }).click({ timeout: 5000 });
+  await q.getByTestId('pinned-card').waitFor();
+  await shot(q, '07j-pinned');
+  await q.getByRole('link', { name: 'Lịch' }).click();
+  await q.getByTestId('calendar-view').getByRole('button', { name: /Việc nhà/ }).click();
+  await q.getByTestId('idea-ideaBins').click();
+  await q.getByTestId('idea-ideaWifi').click();
+  await q.locator('.chore', { hasText: 'Đổ rác' }).getByText('Lượt của Linh').waitFor();
+  await q.locator('.chore', { hasText: 'Đổi mật khẩu wifi' }).getByText('3 tháng một lần').waitFor();
+  await p.getByRole('link', { name: 'Lịch' }).click();
+  await p.getByTestId('calendar-view').getByRole('button', { name: /Việc nhà/ }).click();
+  await p.getByRole('button', { name: 'Đánh dấu xong “Đổ rác”' }).click();
+  await p.getByText('Xong — lượt sau: An').waitFor();
+  await q.locator('.chore', { hasText: 'Đổ rác' }).getByText('Lượt của bạn').waitFor({ timeout: 5000 });
+  await shot(q, '07k-chores');
+  await p.getByTestId('calendar-view').getByRole('button', { name: 'Tháng' }).click();
+  await q.getByTestId('calendar-view').getByRole('button', { name: 'Tháng' }).click();
+  await p.getByRole('link', { name: 'Chat' }).click();
+  await q.getByRole('link', { name: 'Chat' }).click();
+  step('a note pinned to the group chat; chores: bins taking turns (Linh → An, live), Wi‑Fi password every 3 months');
+
   // ── 5. Library ───────────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Thư viện' }).click();
   await p.getByText('Wi-Fi nhà mình').waitFor();

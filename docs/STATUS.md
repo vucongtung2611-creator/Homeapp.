@@ -41,7 +41,10 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 | Lịch trong nhà | Tab Lịch cạnh Chat. Xem tháng và tuần; lọc theo người (mỗi người một màu), theo nhãn (ví dụ tên con, "Đối tác" khi dùng cho văn phòng) hoặc "Của tôi". Mỗi lịch hẹn có giờ bắt đầu và kết thúc, ghi chú, ai được xem (cả nhà / chủ nhà và quản lý / chỉ mình). Người thêm, chủ nhà hoặc quản lý sửa được; khách chỉ xem. Cập nhật ngay trên mọi máy |
 | Từ chat sang lịch | Tin nhắn có ngày giờ ("thứ 7 lúc 9h", "tối mai 7h", "7/10", "demain à 18h", "am Freitag um 8"…) hiện nút "📅 Thêm vào lịch nhà", mở sẵn ngày, giờ và nội dung. Nhận diện bằng quy tắc, không dùng AI |
 | Lịch nhà trong Google / Apple / Outlook | Tải file .ics (bản sao một lần), hoặc tạo link đăng ký bí mật: thêm vào Google Calendar ("Từ URL") hay Apple Calendar là lịch tự cập nhật (Google vài giờ một lần). Link chỉ hiện một lần, chỉ chứa những lịch người tạo link được xem, tạo link mới thì link cũ ngừng chạy, tắt được; rời nhà là link hết hiệu lực. Miễn phí, không cần tài khoản Google |
-| Nhắc hẹn khi mở app | Thanh nhắc lịch hôm nay và ngày mai (của mình hoặc của cả nhà); ẩn được, ẩn thì không hiện lại trong ngày |
+| Nhắc hẹn khi mở app | Thanh nhắc lịch hôm nay và ngày mai, và việc nhà đến lượt mình (của mình hoặc của cả nhà); ẩn được, ẩn thì không hiện lại trong ngày |
+| Việc nhà (to-do) | Trong tab Lịch → "Việc nhà": việc cần làm, ai làm theo lượt (xoay vòng), lặp lại (mỗi ngày … mỗi năm), hạn. Đánh dấu xong thì chuyển lượt cho người kế và hẹn lại; người rời nhà tự bị bỏ qua. Khách chỉ xem. Gợi ý nhanh: Đổ rác, Lau nhà tắm (xoay vòng hằng tuần) |
+| Nhắc đổi mật khẩu wifi | Một việc nhà mẫu "Đổi mật khẩu wifi — 3 tháng một lần"; đến hạn thì hiện trong thanh nhắc khi mở app và trong "gợi ý" của MATE |
+| Ghim ghi chú lên chat | Ghi chú cả nhà xem được (wifi, nội quy…) ghim lên đầu nhóm chat, bấm để đọc. Người tạo, chủ nhà hoặc quản lý ghim/bỏ ghim; ghi chú riêng không ghim được |
 | Hướng dẫn lần đầu | 4 bước, dùng tốt trên điện thoại, bỏ qua được, xem lại được |
 | Ngôn ngữ | Tiếng Anh, Việt, Pháp, Đức, Hà Lan; thông báo lỗi dễ hiểu (có kiểm thử bảo đảm mọi lỗi đều có câu dịch) |
 | Chạy thử trên máy | `npm run try`: một nhà mẫu, 4 tài khoản |

@@ -1,6 +1,6 @@
 import { Fragment } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { api, upload, type Conversations, type Household, type Message } from '../api.js';
+import { api, upload, type Conversations, type Household, type Item, type Message } from '../api.js';
 import { preparePhoto } from '../image.js';
 import type { Live } from '../router.js';
 import { CharacterAvatar } from '../characters.js';
@@ -50,7 +50,9 @@ function BotBody({ reply, onUse }: { reply: NonNullable<Message['bot']>; onUse: 
         ? `📅 ${i.title} — ${whenText(i.date, i.time)}`
         : i.k === 'bill'
           ? `🧾 ${t('bots.s_bill', { title: i.title, date: formatDate(i.date) })}`
-          : i.k === 'expiring'
+          : i.k === 'chore'
+            ? `🧹 ${t('bots.s_chore', { title: i.title, date: formatDate(i.date) })}`
+            : i.k === 'expiring'
             ? `⏰ ${t('bots.s_expiring', { title: i.title, date: formatDate(i.date) })}`
             : i.k === 'debt'
               ? `💸 ${t('bots.s_debt')}`
@@ -358,6 +360,7 @@ export function ChatScreen({ home, live, session, conversation = 'group' }: { ho
           {unreadElsewhere && <span class="dot" aria-label={t('chat.unread')} />}
         </button>
       </ChatName>
+      {conversation === 'group' && <PinnedStrip home={home} live={live} />}
       {(bot || other) && (
         <p class="chat-note" data-testid="chat-note">
           {bot ? '🤖 ' : '🔒 '}
@@ -706,5 +709,40 @@ function ChatName({ home, rename, children }: { home: Household; rename: boolean
         </button>
       )}
     </div>
+  );
+}
+
+/** Notes pinned to the top of the group chat — the Wi‑Fi password, house rules… Tap to read. */
+function PinnedStrip({ home, live }: { home: Household; live: Live }) {
+  const data = useLoad(() => api<{ items: Item[] }>('GET', `/api/households/${home.id}/items?pinned=1`), [home.id]);
+  const [open, setOpen] = useState<string>();
+  useEffect(
+    () =>
+      live.on((e) => {
+        if ((e.type === 'changed' && e.area === 'library') || e.type === 'resync') void data.reload(true);
+      }),
+    [live],
+  );
+  const items = data.data?.items ?? [];
+  if (!items.length) return null;
+  const shown = items.find((i) => i.id === open);
+  return (
+    <>
+      <div class="pinned-strip" role="group" aria-label={t('pin.strip')} data-testid="pinned">
+        {items.map((i) => (
+          <button class="chip" key={i.id} aria-pressed={open === i.id} onClick={() => setOpen(open === i.id ? undefined : i.id)}>
+            📌 {i.title}
+          </button>
+        ))}
+      </div>
+      {shown && (
+        <div class="card pinned-card" data-testid="pinned-card">
+          {shown.body || shown.title}{' '}
+          <button class="link-btn" onClick={() => setOpen(undefined)}>
+            {t('pin.close')}
+          </button>
+        </div>
+      )}
+    </>
   );
 }

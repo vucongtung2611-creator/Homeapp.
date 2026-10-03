@@ -264,6 +264,24 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
      last_used_at TEXT
    );
    CREATE INDEX calendar_feeds_owner ON calendar_feeds(household_id, user_id)`,
+  // 11: home chores / to-do. assignees = JSON list taking turns (turn = whose go it is);
+  //     repeat_days = come back after N days (NULL = once); done_at = a one-off is done.
+  () => `CREATE TABLE chores (
+     id TEXT PRIMARY KEY,
+     household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+     title TEXT NOT NULL,
+     assignees TEXT NOT NULL DEFAULT '[]',
+     turn INTEGER NOT NULL DEFAULT 0,
+     repeat_days INTEGER,
+     due TEXT,
+     done_at TEXT,
+     last_done_by TEXT,
+     last_done_at TEXT,
+     created_by TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE INDEX chores_household ON chores(household_id)`,
 ];
 
 async function migrate(db: Database): Promise<void> {

@@ -459,7 +459,8 @@ export async function createServer(options: ServerOptions) {
     const messages = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM messages WHERE household_id = ? AND user_id IS NOT NULL', householdId);
     const uploads = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM files WHERE household_id = ?', householdId);
     const events = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM calendar_events WHERE household_id = ?', householdId);
-    return Number(messages?.n) === 0 && Number(uploads?.n) === 0 && Number(events?.n) === 0;
+    const chores = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM chores WHERE household_id = ?', householdId);
+    return Number(messages?.n) === 0 && Number(uploads?.n) === 0 && Number(events?.n) === 0 && Number(chores?.n) === 0;
   };
 
   app.delete('/api/households/:hid', async (c) => {
@@ -1093,6 +1094,10 @@ export async function createServer(options: ServerOptions) {
           for: (JSON.parse(r.people) as string[]).map((id) => home.platform.graph.getNode(id)?.label ?? null).filter(Boolean),
           by: home.platform.graph.getNode(r.created_by)?.label ?? null,
         })),
+      chores: (await db.all<ChoreRow>('SELECT * FROM chores WHERE household_id = ? ORDER BY created_at', householdId)).map((r) => {
+        const d = choreDto(home, householdId, r, user.id, 'owner');
+        return { title: d.title, takingTurns: d.assignees.map((id) => home.platform.graph.getNode(id)?.label ?? null), nextUp: d.currentName, repeatDays: d.repeatDays, due: d.due, done: d.done };
+      }),
       money: await moneyView(home, user.id, householdId),
       log: log.map((r) => ({ at: r.created_at, ...eventDto(r, user.id, '\uffff'), id: undefined, unread: undefined, actorIsMe: undefined, subjectIsMe: undefined })),
     };
@@ -1260,6 +1265,13 @@ export async function createServer(options: ServerOptions) {
             items.push({ k: 'bill', title: r.label, date: r.dueDate });
           }
           if (home.finance.reminders(user.id, householdId).some((r) => r.kind === 'debt')) items.push({ k: 'debt' });
+        }
+        if (!guest) {
+          const chores = await db.all<ChoreRow>('SELECT * FROM chores WHERE household_id = ? AND done_at IS NULL AND due IS NOT NULL AND due <= ?', householdId, tomorrowIso);
+          for (const r of chores) {
+            const { current } = choreTurn(home, householdId, r);
+            if (!current || current === user.id) items.push({ k: 'chore', title: r.title, date: r.due });
+          }
         }
         for (const i of home.items.expiring(user.id, householdId, today).slice(0, 2)) {
           items.push({ k: 'expiring', title: i.label, date: i.props.attributes?.expiresOn });
@@ -1597,6 +1609,159 @@ export async function createServer(options: ServerOptions) {
     return c.json({ ok: true });
   });
 
+  // ── Chores: a home to-do list, with turns and repeats ─────────────────
+  interface ChoreRow {
+    id: string;
+    household_id: string;
+    title: string;
+    assignees: string;
+    turn: number | string;
+    repeat_days: number | string | null;
+    due: string | null;
+    done_at: string | null;
+    last_done_by: string | null;
+    last_done_at: string | null;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  }
+  const REPEAT_DAYS = [1, 2, 3, 7, 14, 30, 90, 180, 365];
+  const addDaysIso = (iso: string, n: number) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(Date.UTC(y!, m! - 1, d! + n)).toISOString().slice(0, 10);
+  };
+  /** Whose turn it is (null = anyone), skipping people who have left. */
+  const choreTurn = (home: HomeApp, householdId: string, row: ChoreRow) => {
+    const order = JSON.parse(row.assignees) as string[];
+    const here = (id: string) => Boolean(home.platform.acl.roleOf(id, householdId));
+    for (let k = 0; k < order.length; k++) {
+      const index = (Number(row.turn) + k) % order.length;
+      if (here(order[index]!)) return { people: order.filter(here), current: order[index]!, index };
+    }
+    return { people: [] as string[], current: null, index: -1 };
+  };
+  const choreDto = (home: HomeApp, householdId: string, row: ChoreRow, userId: string, role: Role) => {
+    const { people, current } = choreTurn(home, householdId, row);
+    const name = (id: string | null) => (id ? (home.platform.graph.getNode(id)?.label ?? '') : null);
+    return {
+      id: row.id,
+      title: row.title,
+      assignees: people,
+      current,
+      currentName: name(current),
+      repeatDays: row.repeat_days === null ? null : Number(row.repeat_days),
+      due: row.due,
+      done: Boolean(row.done_at),
+      lastDoneBy: name(row.last_done_by),
+      lastDoneAt: row.last_done_at,
+      canEdit: row.created_by === userId || MANAGER_ROLES.includes(role),
+    };
+  };
+  const findChore = async (householdId: string, id: string) => {
+    const row = await db.get<ChoreRow>('SELECT * FROM chores WHERE id = ? AND household_id = ?', id, householdId);
+    if (!row) throw new HttpError(404, 'not_found');
+    return row;
+  };
+  const choreFields = (home: HomeApp, householdId: string, data: Record<string, unknown>, existing?: ChoreRow) => {
+    const title = data.title === undefined && existing ? existing.title : str(data.title, { max: 200, field: 'title', required: true })!;
+    const assignees = data.assignees === undefined && existing ? (JSON.parse(existing.assignees) as string[]) : ids(data.assignees, 'assignees', 20);
+    if (data.assignees !== undefined && assignees.some((id) => !home.platform.acl.roleOf(id, householdId))) throw bad('people_invalid');
+    const repeat =
+      data.repeatDays === undefined && existing
+        ? existing.repeat_days === null ? null : Number(existing.repeat_days)
+        : data.repeatDays === null || data.repeatDays === '' || data.repeatDays === undefined
+          ? null
+          : REPEAT_DAYS.includes(Number(data.repeatDays))
+            ? Number(data.repeatDays)
+            : (() => { throw bad('repeatDays_invalid'); })();
+    const due = data.due === undefined && existing ? existing.due : (isoDate(data.due, 'due') ?? null);
+    return { title, assignees, repeat, due };
+  };
+  /** "Today" as the person sees it (their clock), falling back to the server's. */
+  const todayOf = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : new Date().toISOString().slice(0, 10));
+
+  app.get('/api/households/:hid/chores', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    const rows = await db.all<ChoreRow>('SELECT * FROM chores WHERE household_id = ? ORDER BY created_at LIMIT 500', householdId);
+    const list = rows.map((r) => choreDto(home, householdId, r, user.id, role));
+    list.sort((a, b) => Number(a.done) - Number(b.done) || (a.due ?? '9999').localeCompare(b.due ?? '9999'));
+    return c.json({ chores: list, canAdd: role !== 'guest' });
+  });
+
+  app.post('/api/households/:hid/chores', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    if (role === 'guest') throw new HttpError(403, 'forbidden');
+    limit(limits.write, user.id);
+    const data = await body(c);
+    const f = choreFields(home, householdId, data);
+    const now = new Date().toISOString();
+    const row: ChoreRow = {
+      id: `ch_${randomUUID()}`, household_id: householdId, title: f.title, assignees: JSON.stringify(f.assignees), turn: 0, repeat_days: f.repeat,
+      due: f.due ?? (f.repeat ? todayOf(data.today) : null), done_at: null, last_done_by: null, last_done_at: null, created_by: user.id, created_at: now, updated_at: now,
+    };
+    await db.run(
+      'INSERT INTO chores (id, household_id, title, assignees, turn, repeat_days, due, done_at, last_done_by, last_done_at, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      row.id, row.household_id, row.title, row.assignees, row.turn, row.repeat_days, row.due, row.done_at, row.last_done_by, row.last_done_at, row.created_by, row.created_at, row.updated_at,
+    );
+    hub.publish(householdId, { type: 'changed', area: 'chores' });
+    return c.json(choreDto(home, householdId, row, user.id, role), 201);
+  });
+
+  app.patch('/api/households/:hid/chores/:id', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    limit(limits.write, user.id);
+    const existing = await findChore(householdId, c.req.param('id'));
+    if (existing.created_by !== user.id && !MANAGER_ROLES.includes(role)) throw new HttpError(403, 'forbidden');
+    const f = choreFields(home, householdId, await body(c), existing);
+    const row: ChoreRow = { ...existing, title: f.title, assignees: JSON.stringify(f.assignees), repeat_days: f.repeat, due: f.due, updated_at: new Date().toISOString() };
+    await db.run('UPDATE chores SET title = ?, assignees = ?, repeat_days = ?, due = ?, updated_at = ? WHERE id = ?', row.title, row.assignees, row.repeat_days, row.due, row.updated_at, row.id);
+    hub.publish(householdId, { type: 'changed', area: 'chores' });
+    return c.json(choreDto(home, householdId, row, user.id, role));
+  });
+
+  /**
+   * Tick it off. Anyone living here can (someone may cover for someone else).
+   * A repeating chore passes to the next person and comes back in N days;
+   * a one-off is marked done. `undo` reopens a one-off.
+   */
+  app.post('/api/households/:hid/chores/:id/done', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    if (role === 'guest') throw new HttpError(403, 'forbidden');
+    limit(limits.write, user.id);
+    const data = await body(c);
+    const row = await store.withLock(`chore:${c.req.param('id')}`, async () => {
+      const existing = await findChore(householdId, c.req.param('id'));
+      const now = new Date().toISOString();
+      const next: ChoreRow = { ...existing, updated_at: now };
+      if (data.undo === true) next.done_at = null;
+      else {
+        next.last_done_by = user.id;
+        next.last_done_at = now;
+        if (existing.repeat_days !== null) {
+          const { index } = choreTurn(home, householdId, existing);
+          next.turn = index < 0 ? 0 : index + 1;
+          next.due = addDaysIso(todayOf(data.today), Number(existing.repeat_days));
+        } else next.done_at = now;
+      }
+      await db.run(
+        'UPDATE chores SET turn = ?, due = ?, done_at = ?, last_done_by = ?, last_done_at = ?, updated_at = ? WHERE id = ?',
+        next.turn, next.due, next.done_at, next.last_done_by, next.last_done_at, next.updated_at, next.id,
+      );
+      return next;
+    });
+    hub.publish(householdId, { type: 'changed', area: 'chores' });
+    return c.json(choreDto(home, householdId, row, user.id, role));
+  });
+
+  app.delete('/api/households/:hid/chores/:id', async (c) => {
+    const { user, householdId, role } = await requireMember(c);
+    const existing = await findChore(householdId, c.req.param('id'));
+    if (existing.created_by !== user.id && !MANAGER_ROLES.includes(role)) throw new HttpError(403, 'forbidden');
+    await db.run('DELETE FROM chores WHERE id = ?', existing.id);
+    hub.publish(householdId, { type: 'changed', area: 'chores' });
+    return c.json({ ok: true });
+  });
+
   // ── Calendar in other apps: .ics file and a secret subscription link ──
   const icsFor = async (home: HomeApp, householdId: string, userId: string, role: Role) => {
     const rows = await db.all<CalendarRow>('SELECT * FROM calendar_events WHERE household_id = ? ORDER BY date, time LIMIT 5000', householdId);
@@ -1726,6 +1891,8 @@ export async function createServer(options: ServerOptions) {
       canDelete: item.ownerId === userId || (owner && item.visibility === 'household'),
       canChangePrivacy: item.ownerId === userId,
       sample: Boolean(item.props.sample),
+      pinned: Boolean(a.pinned),
+      canPin: item.visibility === 'household' && a.audience !== 'managers' && (item.ownerId === userId || MANAGER_ROLES.includes(home.platform.acl.roleOf(userId, householdId)!)),
     };
   }
 
@@ -1742,6 +1909,9 @@ export async function createServer(options: ServerOptions) {
       collection: collection ? oneOf(collection, COLLECTIONS, 'collection') : undefined,
     });
     const today = c.req.query('today') && /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('today')!) ? c.req.query('today')! : new Date().toISOString().slice(0, 10);
+    if (c.req.query('pinned') === '1') {
+      return c.json({ items: list.filter((i) => i.props.attributes?.pinned && i.visibility === 'household' && i.props.attributes?.audience !== 'managers').map((i) => itemDto(home, user.id, householdId, i)) });
+    }
     return c.json({
       items: list.map((i) => itemDto(home, user.id, householdId, i)),
       tags: home.items.tags(user.id, householdId),
@@ -1804,6 +1974,24 @@ export async function createServer(options: ServerOptions) {
     );
     hub.publish(householdId, { type: 'changed', area: 'library' });
     return c.json(itemDto(home, user.id, householdId, item));
+  });
+
+  /** Pin a note to the top of the group chat (Wi‑Fi password, house rules…). Only notes the whole home can see. */
+  app.post('/api/households/:hid/items/:id/pin', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    limit(limits.write, user.id);
+    const item = home.items.get(user.id, c.req.param('id'));
+    if (item.householdId !== householdId) throw new HttpError(404, 'not_found');
+    const attrs = item.props.attributes ?? {};
+    if (item.visibility !== 'household' || attrs.audience === 'managers') throw bad('pin_private');
+    if (item.ownerId !== user.id && !MANAGER_ROLES.includes(role)) throw new HttpError(403, 'forbidden');
+    const pinned = bool((await body(c)).pinned, true);
+    const next = { ...attrs };
+    if (pinned) next.pinned = true;
+    else delete next.pinned;
+    const updated = await store.mutate(householdId, (h) => h.platform.graph.updateNode<HouseItemProps>(item.id, { attributes: next }));
+    hub.publish(householdId, { type: 'changed', area: 'library' });
+    return c.json(itemDto(home, user.id, householdId, updated));
   });
 
   app.delete('/api/households/:hid/items/:id', async (c) => {

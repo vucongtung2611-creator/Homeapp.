@@ -220,6 +220,26 @@ export interface Item {
   canDelete: boolean;
   canChangePrivacy: boolean;
   sample: boolean;
+  /** Pinned to the top of the group chat. */
+  pinned?: boolean;
+  canPin?: boolean;
+}
+
+export interface Chore {
+  id: string;
+  title: string;
+  /** People taking turns, in order (empty = anyone). */
+  assignees: string[];
+  /** Whose turn it is now (null = anyone). */
+  current: string | null;
+  currentName: string | null;
+  /** Comes back every N days; null = once. */
+  repeatDays: number | null;
+  due: string | null;
+  done: boolean;
+  lastDoneBy: string | null;
+  lastDoneAt: string | null;
+  canEdit: boolean;
 }
 
 export interface Bill {

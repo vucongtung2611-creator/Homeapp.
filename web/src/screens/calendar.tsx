@@ -5,6 +5,8 @@ import { navigate } from '../router.js';
 import { formatDate, getLocale, t, type MessageKey } from '../i18n/index.js';
 import { EmptyState, ErrorState, Icon, Sheet, Skeleton, Spinner, toast, toastError, useLoad } from '../ui.js';
 import { errorText, todayIso } from '../util.js';
+import { ChoresView } from './chores.js';
+import type { Chore } from '../api.js';
 
 const VIEW_KEY = 'homeapp:calendar-view';
 const VIS_EMOJI = { me: '🔒', home: '👥', managers: '🛡️' } as const;
@@ -34,9 +36,10 @@ export const timeText = (ev: Pick<CalendarEvent, 'time' | 'endTime'>) =>
 
 export function CalendarScreen({ home, live }: { home: Household; live: Live }) {
   const me = home.me.id;
-  const [view, setView] = useState<'month' | 'week'>(() => {
+  const [view, setView] = useState<'month' | 'week' | 'chores'>(() => {
     try {
-      return localStorage.getItem(VIEW_KEY) === 'week' ? 'week' : 'month';
+      const saved = localStorage.getItem(VIEW_KEY);
+      return saved === 'week' || saved === 'chores' ? saved : 'month';
     } catch {
       return 'month';
     }
@@ -72,7 +75,7 @@ export function CalendarScreen({ home, live }: { home: Household; live: Live }) 
     history.replaceState(null, '', location.pathname);
   }, []);
 
-  const chooseView = (v: 'month' | 'week') => {
+  const chooseView = (v: 'month' | 'week' | 'chores') => {
     setView(v);
     setAnchor(parse(selected));
     try {
@@ -109,16 +112,31 @@ export function CalendarScreen({ home, live }: { home: Household; live: Live }) 
   const today = todayIso();
   const peopleWithEvents = home.members.filter((m) => (data.data?.events ?? []).some((e) => e.people.includes(m.id)));
 
+  const switcher = (
+    <div class="segmented three" role="group" aria-label={t('calendar.viewLabel')} data-testid="calendar-view">
+      <button type="button" aria-pressed={view === 'month'} onClick={() => chooseView('month')}>
+        {t('calendar.month')}
+      </button>
+      <button type="button" aria-pressed={view === 'week'} onClick={() => chooseView('week')}>
+        {t('calendar.week')}
+      </button>
+      <button type="button" aria-pressed={view === 'chores'} onClick={() => chooseView('chores')}>
+        🧹 {t('chores.tab')}
+      </button>
+    </div>
+  );
+  if (view === 'chores') {
+    return (
+      <div class="page calendar-page">
+        {switcher}
+        <ChoresView home={home} live={live} />
+      </div>
+    );
+  }
+
   return (
     <div class="page calendar-page">
-      <div class="segmented" role="group" aria-label={t('calendar.viewLabel')} data-testid="calendar-view">
-        <button type="button" aria-pressed={view === 'month'} onClick={() => chooseView('month')}>
-          {t('calendar.month')}
-        </button>
-        <button type="button" aria-pressed={view === 'week'} onClick={() => chooseView('week')}>
-          {t('calendar.week')}
-        </button>
-      </div>
+      {switcher}
       <div class="cal-nav">
         <button class="icon-btn" aria-label={t('calendar.prev')} onClick={() => step(-1)}>
           <Icon.back />
@@ -445,13 +463,19 @@ export function CalendarReminder({ home }: { home: Household }) {
     }
   });
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [chores, setChores] = useState<Chore[]>([]);
   useEffect(() => {
     if (hidden) return;
     api<{ events: CalendarEvent[] }>('GET', `/api/households/${home.id}/calendar?from=${today}&to=${tomorrow}`)
       .then((r) => setEvents(r.events.filter((e) => e.people.length === 0 || e.people.includes(home.me.id))))
       .catch(() => {});
+    if (home.me.role !== 'guest') {
+      api<{ chores: Chore[] }>('GET', `/api/households/${home.id}/chores`)
+        .then((r) => setChores(r.chores.filter((c) => !c.done && c.due && c.due <= today && c.current === home.me.id)))
+        .catch(() => {});
+    }
   }, [home.id, hidden]);
-  if (hidden || events.length === 0) return null;
+  if (hidden || events.length + chores.length === 0) return null;
   const dismiss = () => {
     setHidden(true);
     try {
@@ -464,11 +488,15 @@ export function CalendarReminder({ home }: { home: Household }) {
         <strong>⏰ {t('calendar.reminderTitle')}:</strong>{' '}
         {events.slice(0, 3).map((e, i) => (
           <button key={e.id} class="link-btn" onClick={() => navigate(`/h/${home.id}/calendar`)}>
-            {i > 0 && '; '}
             {e.date === today ? t('calendar.reminderToday') : t('calendar.reminderTomorrow')} {e.time ?? ''} {e.title}
           </button>
         ))}
         {events.length > 3 && ` ${t('calendar.more', { count: events.length - 3 })}`}
+        {chores.slice(0, 2).map((c, i) => (
+          <button key={c.id} class="link-btn" onClick={() => navigate(`/h/${home.id}/calendar`)}>
+            🧹 {t('chores.reminder', { title: c.title })}
+          </button>
+        ))}
       </span>
       <button class="link-btn" onClick={dismiss}>
         {t('calendar.dismiss')}

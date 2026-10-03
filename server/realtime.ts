@@ -9,7 +9,7 @@
 export type RealtimeEvent =
   | { type: 'message'; message: unknown }
   | { type: 'message_deleted'; id: string }
-  | { type: 'changed'; area: 'library' | 'bills' | 'members' | 'household' | 'requests' | 'inbox' | 'calendar' };
+  | { type: 'changed'; area: 'library' | 'bills' | 'members' | 'household' | 'requests' | 'inbox' | 'calendar' | 'chores' };
 
 export interface Subscriber {
   userId: string;

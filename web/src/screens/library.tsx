@@ -146,7 +146,8 @@ export function LibraryScreen({ home, live, personal = false }: { home: Househol
 
   const filtered = Boolean(query || tag || kind || collection);
   const clearFilters = () => (setKind(undefined), setTag(undefined), setCollection(undefined), setQ(''));
-  const items = data.data?.items ?? [];
+  // Pinned notes first.
+  const items = [...(data.data?.items ?? [])].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
 
   return (
     <div class="page">
@@ -276,7 +277,7 @@ export function LibraryScreen({ home, live, personal = false }: { home: Househol
                     {item.body ? item.body.split('\n')[0] : item.attachments.length ? t('library.files', { count: item.attachments.length }) : KIND[item.kind].label}
                   </span>
                   <span style={{ display: 'block', marginTop: 6 }}>
-                    <Visibility item={item} personal={personal} />{' '}
+                    {item.pinned && <span class="badge">📌 {t('pin.pinned')}</span>} <Visibility item={item} personal={personal} />{' '}
                     {item.sample && <span class="badge">{t('common.sample')}</span>}
                   </span>
                   {(item.collection || item.expiresOn) && (
@@ -358,6 +359,10 @@ export function LibraryScreen({ home, live, personal = false }: { home: Househol
             setOpen(undefined);
             void data.reload(true);
           }}
+          onChanged={(next) => {
+            setOpen(next);
+            void data.reload(true);
+          }}
           home={home}
         />
       )}
@@ -385,7 +390,7 @@ function Thumb({ item }: { item: Item }) {
   return <span class="emoji">{img ? <img src={img.url} alt="" loading="lazy" /> : KIND[item.kind].emoji}</span>;
 }
 
-function ItemSheet(props: { item: Item; home: Household; onClose: () => void; onEdit: () => void; onDeleted: () => void }) {
+function ItemSheet(props: { item: Item; home: Household; onClose: () => void; onEdit: () => void; onDeleted: () => void; onChanged: (item: Item) => void }) {
   const { item, home } = props;
   const [lightbox, setLightbox] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -464,6 +469,19 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
         </p>
       )}
       <div class="row" style={{ marginTop: 16 }}>
+        {item.canPin && (
+          <button
+            class="btn secondary"
+            data-testid="pin-toggle"
+            onClick={() =>
+              api<Item>('POST', `/api/households/${home.id}/items/${item.id}/pin`, { pinned: !item.pinned })
+                .then((next) => (toast(next.pinned ? t('pin.done') : t('pin.undone')), props.onChanged(next)))
+                .catch(toastError)
+            }
+          >
+            📌 {item.pinned ? t('pin.unpin') : t('pin.pin')}
+          </button>
+        )}
         {item.canEdit && (
           <button class="btn secondary" onClick={props.onEdit}>
             {t('common.edit')}

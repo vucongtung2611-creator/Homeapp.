@@ -65,6 +65,16 @@ Cả bốn người ở chung **Nhà số 7**.
 - Một lần đi chợ chung.
 - Mục **Ai nợ ai**.
 
+**Lịch** (tab mới cạnh Chat)
+- Xem tháng / tuần, lọc theo người hoặc nhãn. Bấm "Thêm" để tạo lịch hẹn.
+- Viết trong chat "thứ 7 lúc 9h đi bơi" → dưới tin nhắn có nút "📅 Thêm vào lịch nhà".
+- "Việc nhà": bấm gợi ý "Đổ rác" (xoay vòng) hay "Đổi mật khẩu wifi" (3 tháng/lần), rồi đánh dấu xong để chuyển lượt.
+- "🔗 Dùng trong Google hoặc Apple Calendar": tải file .ics hoặc tạo link đăng ký.
+
+**Chọn người trò chuyện** (nút có tên nhóm ở đầu khung chat)
+- Nhắn riêng với một người: chỉ hai người thấy.
+- MATE, James, Timothy, Ella, Nolan (bản thử, không có AI): thử "ghi chú: …", "lịch: mai 8h …", "tìm wifi", "gợi ý cho mình".
+
 **Hộp thư, vai trò, nhật ký** (đăng nhập bằng Tom)
 - Biểu tượng hộp thư cạnh ⚙️: ai đã vào nhà, thư mời đã gửi.
 - ⚙️ Cài đặt: đổi vai trò từng người (Quản lý, Khách…), nhật ký nhà, tải toàn bộ dữ liệu (.zip).

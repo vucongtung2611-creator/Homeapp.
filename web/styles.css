@@ -583,3 +583,16 @@ dl.details dd { margin: 0; }
 .bot-chips { padding: 2px 16px 8px; margin: 0; }
 .bot-chips .chip { min-height: 32px; font-size: 14px; }
 .chat-page .chat-head { padding: 4px 16px 8px; }
+.segmented.three { grid-template-columns: repeat(3, 1fr); }
+.badge.accent { background: var(--accent-soft); color: var(--accent-text); }
+.chore { display: flex; align-items: center; gap: 10px; }
+.chore .list-item { flex: 1; min-width: 0; }
+.chore .list-item:disabled { opacity: 1; cursor: default; }
+.chore .tick { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line); background: var(--surface); display: grid; place-items: center; cursor: pointer; color: var(--on-ink); }
+.chore .tick.on { background: var(--accent); border-color: var(--accent); }
+.chore .tick svg { width: 18px; height: 18px; }
+.chore.done .title { text-decoration: line-through; color: var(--muted); }
+.pinned-strip { display: flex; gap: 6px; overflow-x: auto; padding: 0 16px 8px; scrollbar-width: none; }
+.pinned-strip .chip { min-height: 30px; font-size: 13.5px; }
+.pinned-card { margin: 0 16px 8px; white-space: pre-wrap; }
+.cal-reminder .link-btn { display: block; text-align: left; margin-top: 2px; }
