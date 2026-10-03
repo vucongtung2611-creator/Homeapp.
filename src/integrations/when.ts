@@ -68,6 +68,8 @@ function findDay(s: string, now: Date): Date | undefined {
   // Day after tomorrow first ("ngày kia", "overmorgen"…), then tomorrow, then today.
   if (/\b(day after tomorrow|ngay kia|ngay mot|apres-demain|apres demain|ubermorgen|overmorgen)\b/.test(s)) return addDays(today, 2);
   if (/\b(tomorrow|ngay mai|sang mai|toi mai|chieu mai|demain|morgen)\b/.test(s)) return addDays(today, 1);
+  // Vietnamese "mai" alone ("mai 3 giờ") is tomorrow; "3 mai" / "3. Mai" is May.
+  if (/\bmai\b/.test(s) && !/\d{1,2}\.?\s+mai\b/.test(s)) return addDays(today, 1);
   if (/\b(today|tonight|this evening|hom nay|toi nay|chieu nay|sang nay|aujourd'hui|ce soir|heute|heute abend|vandaag|vanavond)\b/.test(s)) return today;
 
   // 7/10, 07/10/2026, 7-10, 7.10.26 (day first)
@@ -101,7 +103,7 @@ function findTime(s: string): string | undefined {
   // 19:00, 7:30pm, 19h30, 7h, 7 gio, 7pm, 8 uhr, um 8, à 18h
   const m =
     /\b(\d{1,2})(?::|h|\.)(\d{2})\s*(am|pm)?\b/.exec(s) ??
-    /\b(\d{1,2})\s*(?:h|gio|g|uhr)\b(?:\s*(sang|trua|chieu|toi|dem))?/.exec(s) ??
+    /\b(\d{1,2})\s*(?:h|gio|g|uhr|uur)\b(?:\s*(sang|trua|chieu|toi|dem))?/.exec(s) ??
     /\b(\d{1,2})\s*(am|pm)\b/.exec(s) ??
     /\b(?:at|um|a|om|luc)\s+(\d{1,2})\b(?!\s*[/.-]\d)/.exec(s);
   if (!m) return undefined;

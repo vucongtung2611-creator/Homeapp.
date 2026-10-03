@@ -147,8 +147,30 @@ export interface Message {
   system: { key: string; params?: Record<string, string | number> } | null;
   /** A built-in sticker id, for sticker messages. */
   sticker?: string | null;
+  /** null = the group chat; 'dm:<a>:<b>' or 'bot:<character>:<me>' for private chats. */
+  conversation?: string | null;
+  /** A reply from MATE or a character, rendered with t('bots.<key>'). */
+  bot?: { bot: string; key: string; params?: Record<string, any> } | null;
   file: UploadedFile | null;
   createdAt: string;
+}
+
+export interface ConversationLast {
+  seq: number;
+  text: string;
+  mine: boolean;
+  photo: boolean;
+  sticker: boolean;
+  bot: boolean;
+  at: string;
+}
+
+export interface Conversations {
+  group: { last: ConversationLast | null };
+  people: { id: string; name: string; avatar: string; role: string; last: ConversationLast | null }[];
+  bots: { id: string; last: ConversationLast | null }[];
+  /** People I share another home with; chatting with them happens in that home. */
+  elsewhere: { householdId: string; householdName: string; id: string; name: string; avatar: string }[];
 }
 
 export interface CalendarEvent {

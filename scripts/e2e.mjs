@@ -342,15 +342,50 @@ try {
   await q.getByRole('link', { name: 'Chat' }).click();
   step('calendar: "add to home calendar" from a chat message (time and text filled in), month and week views, filter by label, live on both phones, reminder on opening');
 
+  // ── Conversations: a private chat, and Ella (rule-based, no AI) ──────────
+  await p.getByTestId('conversation-picker').click();
+  await p.getByRole('dialog').getByRole('button', { name: /^An/ }).click();
+  await p.getByTestId('chat-note').waitFor();
+  await p.getByLabel('Tin nhắn').fill('Bí mật nhé: mua quà sinh nhật mẹ');
+  await p.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await q.getByTestId('conversation-picker').locator('.dot').waitFor({ timeout: 5000 });
+  await expect((await q.getByText('Bí mật nhé: mua quà sinh nhật mẹ').count()) === 0, 'a private message stays out of the group chat');
+  await q.getByTestId('conversation-picker').click();
+  await shot(q, '07g-conversations');
+  await q.getByRole('dialog').getByRole('button', { name: /^Linh/ }).click();
+  await q.getByText('Bí mật nhé: mua quà sinh nhật mẹ').waitFor();
+  await shot(q, '07h-private-chat');
+  await p.getByTestId('conversation-picker').click();
+  await p.getByRole('dialog').getByRole('button', { name: /^Ella/ }).click();
+  await p.getByTestId('bot-greeting').waitFor();
+  await p.locator('.bot-chips').getByRole('button', { name: 'gợi ý cho mình' }).click();
+  await p.getByTestId('bot-reply').first().waitFor({ timeout: 5000 });
+  await p.getByLabel('Tin nhắn').fill('ghi chú: Mật khẩu wifi mới là mate2026');
+  await p.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await p.getByTestId('bot-reply').filter({ hasText: 'Đã lưu “Mật khẩu wifi mới là mate2026”' }).waitFor({ timeout: 5000 });
+  await p.getByLabel('Tin nhắn').fill('tìm wifi');
+  await p.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await p.getByTestId('bot-reply').filter({ hasText: '📝 Mật khẩu wifi mới là mate2026' }).waitFor({ timeout: 5000 });
+  await p.getByLabel('Tin nhắn').fill('lịch: mai 8h họp tổ dân phố');
+  await p.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await p.getByTestId('bot-reply').filter({ hasText: 'Đã thêm “mai 8h họp tổ dân phố” vào lịch' }).waitFor({ timeout: 5000 });
+  await shot(p, '07i-ella');
+  await p.getByTestId('conversation-picker').click();
+  await p.getByRole('dialog').getByTestId('conv-group').click();
+  await p.getByTestId('chat-name').getByText('Nhà mình 🏡').waitFor();
+  await q.getByTestId('conversation-picker').click();
+  await q.getByRole('dialog').getByTestId('conv-group').click();
+  step('conversations: private chat Linh ↔ An stays out of the group; Ella greets, saves a note to the Library, finds it and adds an appointment (simple commands, no AI)');
+
   // ── 5. Library ───────────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Thư viện' }).click();
   await p.getByText('Wi-Fi nhà mình').waitFor();
-  // 4 sample notes + 7 shelf examples; Linh also sees her private sample note.
-  await waitCount(p, 11, 'Linh sees 11 sample items (incl. her private note)');
+  // 4 sample notes + 7 shelf examples + the note Ella saved; Linh also sees her private sample note.
+  await waitCount(p, 12, 'Linh sees 12 items (incl. her private note)');
   await shot(p, '08-library');
   await q.getByRole('link', { name: 'Thư viện' }).click();
   await q.getByText('Wi-Fi nhà mình').waitFor();
-  await waitCount(q, 10, 'An does not see Linh’s private note');
+  await waitCount(q, 11, 'An does not see Linh’s private note');
   await expect((await q.getByText('Ghi chú riêng của bạn').count()) === 0, 'private note hidden from An');
   step('library: private note hidden from housemate');
 

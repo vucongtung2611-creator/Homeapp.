@@ -1,7 +1,8 @@
 /**
  * Server-Sent Events hub: one stream per open app tab, grouped by household.
  *
- * Chat messages are pushed as-is (every member may see every chat message).
+ * Group chat messages are pushed as-is to everyone in the home; private
+ * chats (two people, or one person and a character) only to those in them.
  * Other changes are pushed as a bare "changed: <area>" hint — each client then
  * refetches through its own permissions, so nothing private rides along.
  */
@@ -36,6 +37,16 @@ export class RealtimeHub {
       } catch {
         // A broken stream is cleaned up by its own abort handler.
       }
+    }
+  }
+
+  /** Only to these people (a private chat). */
+  publishTo(householdId: string, userIds: string[], event: RealtimeEvent): void {
+    for (const sub of this.rooms.get(householdId) ?? []) {
+      if (!userIds.includes(sub.userId)) continue;
+      try {
+        sub.send(event);
+      } catch {}
     }
   }
 

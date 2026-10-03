@@ -21,6 +21,8 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 | Nhật ký nhà | Chủ nhà xem mọi thay đổi về người và quyền |
 | Rời / gỡ / xoá nhà | Có xác nhận. Nhà trống của riêng mình thì xoá được |
 | Chat | Chữ và ảnh, đến ngay (SSE). Tự ngắt sau 3 phút không dùng, tự nối lại và tải tin bị lỡ |
+| Chọn người trò chuyện | Nút ở đầu khung chat mở danh sách: nhóm chat của nhà; nhắn riêng với từng người trong nhà; người quen ở các nhà khác của bạn (mở chat trong nhà chung); MATE và 4 nhân vật. Có bộ chọn nhà ngay trong danh sách; chấm xanh khi có tin mới |
+| Nhắn riêng | Chỉ hai người trong cuộc thấy — chủ nhà cũng không đọc được, không có trong file xuất dữ liệu; ảnh gửi riêng chỉ hai người mở được; tin chỉ đẩy tới máy của hai người |
 | Emoji, nhãn dán, tên nhóm | 48 emoji chèn đúng chỗ con trỏ; 12 nhãn dán có chữ theo ngôn ngữ người đọc; chủ nhà và quản lý đổi tên nhóm chat (cả nhà được báo) |
 | Ảnh từ thư viện máy | Nút ảnh mở thư viện ảnh của điện thoại (hoặc máy ảnh, tuỳ máy) |
 | Thư viện | Ghi chú, ảnh, tài liệu PDF; nhãn; tìm không dấu |
@@ -49,6 +51,7 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 |---|---|
 | Nhắc hết hạn | Chỉ hiện khi mở app. **Chưa** gửi email hay thông báo đẩy |
 | Nhắc lịch hẹn | Chỉ hiện khi mở app. **Chưa** gửi email hay thông báo đẩy. Chưa có lịch lặp lại (hằng tuần, hằng tháng) |
+| Trò chuyện với MATE và nhân vật | **Không có AI.** Làm theo vài lệnh đơn giản (5 ngôn ngữ): "ghi chú: …" lưu vào Thư viện của nhà đang mở (cả nhà xem), "ghi riêng: …" (chỉ mình xem), "lịch: thứ 7 9h …" thêm vào Lịch, "tìm …" tìm trong Thư viện và Lịch, "sắp tới có gì?", "gợi ý cho mình" (hoá đơn sắp hạn, giấy tờ sắp hết hạn, lịch hôm nay/mai). Mỗi nhân vật có lời chào riêng theo tính cách. Cuộc trò chuyện chỉ mình bạn thấy. Câu không khớp lệnh thì nhân vật đưa danh sách lệnh mẫu |
 | Nhận diện ngày giờ trong chat | Chỉ bắt các cách nói phổ biến; câu mơ hồ ("hôm nào rảnh") thì không gợi ý |
 | Đọc hoá đơn từ ảnh | Chạy ngay trên điện thoại, chưa dùng AI; ảnh mờ hoặc hoá đơn lạ có thể đọc sai, người dùng kiểm tra lại trước khi lưu |
 | Khách hết hạn | Bị gỡ khi có người mở app lần kế tiếp, không đúng phút |
@@ -62,4 +65,5 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 - Bưu kiện, dùng khi mất mạng.
 - Nhắc lịch hẹn qua email và thông báo đẩy (cần dịch vụ gửi thư hoặc đăng ký push; hiện chỉ nhắc trong app).
 - Kết nối tài khoản thanh toán thật (ngân hàng, ví) để trả hoá đơn ngay trong app. **Không làm trong đợt này**: cần đối tác thanh toán, giấy phép và kiểm tra bảo mật; hiện app chỉ ghi nhận "đã trả".
-- Trợ lý AI trong nhà ("butler").
+- Trợ lý AI thật trong nhà ("butler") hiểu câu nói tự nhiên. Hiện MATE và các nhân vật chỉ là bản thử theo lệnh đơn giản, không gọi dịch vụ AI nào (không tốn phí).
+- Nhóm chat nhỏ trong nhà (vài người), gọi thoại/video.

@@ -265,6 +265,8 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
     );
   }
   const h = home.data;
+  /** Which chat is open: ?c=group (default), ?c=dm:<person>, ?c=bot:<character>. */
+  const chatWith = new URLSearchParams(location.search).get('c') || 'group';
   const titles: Record<Tab, string> = { chat: t('tabs.chat'), calendar: t('tabs.calendar'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings'), inbox: t('inbox.title'), log: t('log.title') };
   const firstName = session.user?.name.split(/\s+/)[0] ?? '';
   const subtitle = tab === 'chat' && h ? tPick(`greeting.${partOfDay()}`, greetingSeed, { name: firstName }) : (h?.name ?? ' ');
@@ -318,7 +320,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
           <Skeleton />
         </div>
       ) : tab === 'chat' ? (
-        <ChatScreen home={h} live={live} />
+        <ChatScreen key={chatWith} home={h} live={live} session={session} conversation={chatWith} />
       ) : tab === 'calendar' ? (
         <CalendarScreen home={h} live={live} />
       ) : tab === 'library' ? (

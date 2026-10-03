@@ -18,7 +18,8 @@ import {
   type Role,
   type TransactionProps,
 } from '../src/index.js';
-import { DEFAULT_CHARACTER } from '../src/characters.js';
+import { CHARACTER_IDS, DEFAULT_CHARACTER, isCharacter } from '../src/characters.js';
+import { matches, parseIntent } from './bots.js';
 import { COLLECTIONS, RENTAL_DOCS } from '../src/modules/items.js';
 import { zip } from './zip.js';
 import { Auth, AuthError, RateLimiter, newInviteCode, newToken, normalizeInviteCode, sha256, type User } from './auth.js';
@@ -84,7 +85,7 @@ const EXPORT_README = `MATE — export of one home
 data.json   everything as JSON: the home, members, chat, library, bills and money, and the home log
 files/      photos and documents from the chat and the library
 
-Private items belonging to other people are not included.
+Private items belonging to other people, and private chats, are not included.
 `;
 
 export async function createServer(options: ServerOptions) {
@@ -1042,7 +1043,8 @@ export async function createServer(options: ServerOptions) {
     const { user, householdId, home } = await requireOwner(c);
     limit(limits.export, user.id);
     const node = home.platform.graph.requireNode(householdId);
-    const rows = await db.all<MessageRow>('SELECT * FROM messages WHERE household_id = ? ORDER BY seq', householdId);
+    // The group chat only: private chats belong to the people in them.
+    const rows = await db.all<MessageRow>('SELECT * FROM messages WHERE household_id = ? AND conversation IS NULL ORDER BY seq', householdId);
     const items = home.items.list(user.id, householdId);
     const fileIds = new Set<string>([
       ...rows.map((r) => r.file_id).filter((id): id is string => Boolean(id)),
@@ -1121,7 +1123,8 @@ export async function createServer(options: ServerOptions) {
     const home = await store.get(file.household_id);
     if (!home?.platform.acl.roleOf(userId, file.household_id)) return false;
     if (file.uploader_id === userId) return true;
-    if (await db.get('SELECT 1 AS x FROM messages WHERE household_id = ? AND file_id = ?', file.household_id, file.id)) return true;
+    const inChats = await db.all<{ conversation: string | null }>('SELECT conversation FROM messages WHERE household_id = ? AND file_id = ?', file.household_id, file.id);
+    if (inChats.some((r) => canSeeConversation(r.conversation, userId))) return true;
     return home.items.referencing(file.household_id, file.id).some((item) => home.items.canSee(userId, item));
   }
 
@@ -1147,7 +1150,39 @@ export async function createServer(options: ServerOptions) {
     created_at: string;
     seq: number;
     meta: string | null;
+    conversation: string | null;
   }
+
+  /**
+   * Who is in a conversation: everyone in the home (null), the two people of
+   * a private chat, or the one person chatting with MATE or a character.
+   * Nobody else — owners included — can read a private chat.
+   */
+  const audienceOf = (key: string | null): string[] | undefined => {
+    if (!key) return undefined;
+    if (key.startsWith('dm:')) return key.slice(3).split(':');
+    if (key.startsWith('bot:')) return [key.slice(4).split(':').slice(1).join(':')];
+    return [];
+  };
+  const canSeeConversation = (key: string | null, userId: string) => !key || (audienceOf(key) ?? []).includes(userId);
+  /** The conversation a request names: "group", "dm:<other person>" or "bot:<character>". */
+  const conversationOf = (raw: unknown, me: string, home: HomeApp, householdId: string, sending = false): { key: string | null; bot?: string; other?: string } => {
+    if (raw === undefined || raw === null || raw === '' || raw === 'group') return { key: null };
+    if (typeof raw !== 'string' || raw.length > 120) throw bad('conversation_invalid');
+    if (raw.startsWith('dm:')) {
+      const other = raw.slice(3);
+      if (!other || other === me || other.includes(':')) throw bad('conversation_invalid');
+      if (sending && !home.platform.acl.roleOf(other, householdId)) throw bad('conversation_invalid');
+      return { key: `dm:${[me, other].sort().join(':')}`, other };
+    }
+    if (raw.startsWith('bot:') && isCharacter(raw.slice(4))) return { key: `bot:${raw.slice(4)}:${me}`, bot: raw.slice(4) };
+    throw bad('conversation_invalid');
+  };
+  const publishMessage = (householdId: string, key: string | null, event: Parameters<RealtimeHub['publish']>[1]) => {
+    const audience = audienceOf(key);
+    if (audience) hub.publishTo(householdId, audience, event);
+    else hub.publish(householdId, event);
+  };
 
   /**
    * System messages are stored as a key + parameters, never as text, so each
@@ -1158,11 +1193,100 @@ export async function createServer(options: ServerOptions) {
     key: 'welcome' | 'joined' | 'billAdded' | 'billPaid' | 'settled' | 'chatRenamed';
     params?: Record<string, string | number | undefined>;
   }
+  /** A reply from MATE or a character: a key + params, written out in the reader's language. */
+  interface BotReply {
+    bot: string;
+    key: string;
+    params?: Record<string, unknown>;
+  }
+
+  /**
+   * MATE and the characters answer simple commands — no AI (see bots.ts).
+   * `localTime` is the sender's own clock ("2026-10-03T21:04"), so "tomorrow"
+   * means their tomorrow, wherever the server runs.
+   */
+  async function botAnswer(user: User, role: Role, home: HomeApp, householdId: string, bot: string, key: string, text: string, localTime: unknown) {
+    const lt = typeof localTime === 'string' ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(localTime) : null;
+    const now = lt ? new Date(+lt[1]!, +lt[2]! - 1, +lt[3]!, +lt[4]!, +lt[5]!) : new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const reply = (k: string, params?: Record<string, unknown>) => insertMessage(householdId, null, '', undefined, { bot, key: k, params }, key);
+    const intent = parseIntent(text, now);
+    const guest = role === 'guest';
+    const visibleEvents = async (from: string) =>
+      (await db.all<CalendarRow>('SELECT * FROM calendar_events WHERE household_id = ? AND date >= ? ORDER BY date, time LIMIT 200', householdId, from)).filter((r) =>
+        canSeeEvent(r, user.id, role),
+      );
+    const eventParams = (r: CalendarRow) => ({ type: 'event', title: r.title, date: r.date, time: r.time });
+    switch (intent.kind) {
+      case 'note': {
+        if (guest) return reply('guestCantSave');
+        const personal = isPersonal(home, householdId);
+        await store.mutate(householdId, (h) =>
+          h.items.create(user.id, householdId, { kind: 'note', title: intent.title, body: intent.body, tags: [], private: personal || intent.private }),
+        );
+        hub.publish(householdId, { type: 'changed', area: 'library' });
+        return reply(intent.private ? 'noteSavedPrivate' : 'noteSaved', { title: intent.title });
+      }
+      case 'event': {
+        if (guest) return reply('guestCantSave');
+        if (!intent.date) return reply('needDate');
+        const created = new Date().toISOString();
+        const row: CalendarRow = {
+          id: `cal_${randomUUID()}`, household_id: householdId, title: intent.title.slice(0, 200), date: intent.date, time: intent.time ?? null, end_time: null, note: '',
+          people: JSON.stringify([user.id]), tag: null, visibility: 'home', created_by: user.id, created_at: created, updated_at: created,
+        };
+        await insertCalendar(row);
+        return reply('eventAdded', { title: row.title, date: row.date, time: row.time });
+      }
+      case 'find': {
+        const items = home.items.list(user.id, householdId, { q: intent.query }).slice(0, 5).map((i) => ({ type: 'item', title: i.label }));
+        const events = (await visibleEvents('0000-01-01')).filter((r) => matches(`${r.title} ${r.note} ${r.tag ?? ''}`, intent.query)).slice(0, 5).map(eventParams);
+        const found = [...items, ...events].slice(0, 6);
+        return reply(found.length ? 'found' : 'notFound', { query: intent.query, items: found });
+      }
+      case 'upcoming': {
+        const next = (await visibleEvents(today)).slice(0, 5).map(eventParams);
+        return reply(next.length ? 'upcoming' : 'upcomingNone', { items: next });
+      }
+      case 'suggest': {
+        const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        const tomorrowIso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+        const items: Record<string, unknown>[] = [];
+        for (const r of (await visibleEvents(today)).filter((r) => r.date <= tomorrowIso).slice(0, 3)) items.push({ k: 'event', title: r.title, date: r.date, time: r.time });
+        if (!guest) {
+          for (const r of home.finance.reminders(user.id, householdId, { withinDays: 7 }).filter((r) => r.kind !== 'debt').slice(0, 3)) {
+            items.push({ k: 'bill', title: r.label, date: r.dueDate });
+          }
+          if (home.finance.reminders(user.id, householdId).some((r) => r.kind === 'debt')) items.push({ k: 'debt' });
+        }
+        for (const i of home.items.expiring(user.id, householdId, today).slice(0, 2)) {
+          items.push({ k: 'expiring', title: i.label, date: i.props.attributes?.expiresOn });
+        }
+        if (!items.length) {
+          if (!(await visibleEvents('0000-01-01')).length && !guest) items.push({ k: 'tryCalendar' });
+          if (home.platform.acl.members(householdId).length === 1 && MANAGER_ROLES.includes(role)) items.push({ k: 'invite' });
+        }
+        return reply(items.length ? 'suggest' : 'suggestNone', { items });
+      }
+      case 'hello':
+        return reply('hello', { name: user.name.split(/\s+/)[0] });
+      default:
+        return reply('help');
+    }
+  }
+
   const insertSystem = (householdId: string, system: SystemMessage) => insertMessage(householdId, null, '', undefined, system);
 
   /** Numbers each household's messages 1, 2, 3… — serialised so two senders never get the same number. */
   /** `meta`: a system message's key and params, or a person's sticker ({ sticker }). */
-  async function insertMessage(householdId: string, userId: string | null, text: string, fileId?: string, system?: SystemMessage | { sticker: string }) {
+  async function insertMessage(
+    householdId: string,
+    userId: string | null,
+    text: string,
+    fileId?: string,
+    system?: SystemMessage | { sticker: string } | BotReply,
+    conversation: string | null = null,
+  ) {
     const row = await store.withLock(`messages:${householdId}`, async () => {
       const last = await db.get<{ s: number | string | null }>('SELECT MAX(seq) AS s FROM messages WHERE household_id = ?', householdId);
       const seq = Number(last?.s ?? 0) + 1;
@@ -1175,9 +1299,10 @@ export async function createServer(options: ServerOptions) {
       created_at: new Date().toISOString(),
       seq,
       meta: system ? JSON.stringify(system) : null,
+      conversation,
       };
       await db.run(
-        'INSERT INTO messages (id, household_id, user_id, text, file_id, created_at, seq, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO messages (id, household_id, user_id, text, file_id, created_at, seq, meta, conversation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         row.id,
         row.household_id,
         row.user_id,
@@ -1186,11 +1311,12 @@ export async function createServer(options: ServerOptions) {
         row.created_at,
         row.seq,
         row.meta,
+        row.conversation,
       );
       return row;
     });
     const dto = await messageDto(row);
-    hub.publish(householdId, { type: 'message', message: dto });
+    publishMessage(householdId, conversation, { type: 'message', message: dto });
     return dto;
   }
 
@@ -1203,7 +1329,9 @@ export async function createServer(options: ServerOptions) {
       userId: row.user_id,
       userName: row.user_id ? (home?.platform.graph.getNode(row.user_id)?.label ?? '?') : null,
       text: row.text,
-      system: row.meta && !row.user_id ? (JSON.parse(row.meta) as SystemMessage) : null,
+      conversation: row.conversation ?? null,
+      system: row.meta && !row.user_id && !(JSON.parse(row.meta) as { bot?: string }).bot ? (JSON.parse(row.meta) as SystemMessage) : null,
+      bot: row.meta && !row.user_id && (JSON.parse(row.meta) as { bot?: string }).bot ? (JSON.parse(row.meta) as BotReply) : null,
       sticker: row.meta && row.user_id ? ((JSON.parse(row.meta) as { sticker?: string }).sticker ?? null) : null,
       file: file ? fileDto(file) : null,
       createdAt: row.created_at,
@@ -1211,14 +1339,15 @@ export async function createServer(options: ServerOptions) {
   }
 
   app.get('/api/households/:hid/messages', async (c) => {
-    const { householdId } = await requireMember(c);
+    const { user, householdId, home } = await requireMember(c);
+    const conv = conversationOf(c.req.query('conversation'), user.id, home, householdId);
     // seq is a 32-bit INTEGER in Postgres, so clamp the bounds into range.
     const clamp = (v: number, fallback: number) => (Number.isFinite(v) ? Math.max(0, Math.min(Math.trunc(v), 2_000_000_000)) : fallback);
     const before = clamp(Number(c.req.query('before') ?? NaN), 2_000_000_000);
     const after = clamp(Number(c.req.query('after') ?? 0), 0);
     const rows = await db.all<MessageRow>(
-      'SELECT * FROM messages WHERE household_id = ? AND seq < ? AND seq > ? ORDER BY seq DESC LIMIT 50',
-      householdId,
+      `SELECT * FROM messages WHERE household_id = ? AND ${conv.key ? 'conversation = ?' : 'conversation IS NULL'} AND seq < ? AND seq > ? ORDER BY seq DESC LIMIT 50`,
+      ...(conv.key ? [householdId, conv.key] : [householdId]),
       before,
       after,
     );
@@ -1226,15 +1355,57 @@ export async function createServer(options: ServerOptions) {
   });
 
   app.post('/api/households/:hid/messages', async (c) => {
-    const { user, householdId } = await requireMember(c);
+    const { user, householdId, home, role } = await requireMember(c);
     limit(limits.message, user.id);
     const data = await body(c);
+    const conv = conversationOf(data.conversation, user.id, home, householdId, true);
     const text = str(data.text, { max: 4000, field: 'text' }) ?? '';
     const fileId = str(data.fileId, { max: 100, field: 'fileId' });
     const sticker = data.sticker === undefined ? undefined : oneOf(data.sticker, STICKERS, 'sticker');
     if (!text && !fileId && !sticker) throw bad('message_empty');
     if (fileId && !(await ownUploads(user.id, householdId, [fileId]))[0]!.mime.startsWith('image/')) throw bad('chat_images_only');
-    return c.json(await insertMessage(householdId, user.id, sticker ? '' : text, sticker ? undefined : fileId, sticker ? { sticker } : undefined), 201);
+    const sent = await insertMessage(householdId, user.id, sticker ? '' : text, sticker ? undefined : fileId, sticker ? { sticker } : undefined, conv.key);
+    if (conv.bot) await botAnswer(user, role, home, householdId, conv.bot, conv.key!, text, data.localTime);
+    return c.json(sent, 201);
+  });
+
+  /**
+   * Everything I can chat in from this home: its group chat, a private chat
+   * with each person in it, MATE and the characters, and people I share
+   * another home with (their chat lives in that home).
+   */
+  app.get('/api/households/:hid/conversations', async (c) => {
+    const { user, householdId, home } = await requireMember(c);
+    const rows = await db.all<{ conversation: string | null; s: number | string }>(
+      'SELECT conversation, MAX(seq) AS s FROM messages WHERE household_id = ? GROUP BY conversation',
+      householdId,
+    );
+    const lastSeq = new Map(rows.filter((r) => canSeeConversation(r.conversation, user.id)).map((r) => [r.conversation, Number(r.s)]));
+    const last = async (key: string | null) => {
+      if (!lastSeq.has(key)) return null;
+      const r = await db.get<MessageRow>('SELECT * FROM messages WHERE household_id = ? AND seq = ?', householdId, lastSeq.get(key)!);
+      return r ? { seq: r.seq, text: r.text, mine: r.user_id === user.id, photo: Boolean(r.file_id), sticker: Boolean(r.meta && r.user_id), bot: Boolean(r.meta && !r.user_id && r.conversation), at: r.created_at } : null;
+    };
+    const everyone = await members(home, householdId, auth);
+    const here = new Set(everyone.map((m) => m.id));
+    const elsewhere: { householdId: string; householdName: string; id: string; name: string; avatar: string }[] = [];
+    for (const h of await store.householdsOf(user.id)) {
+      if (h.id === householdId) continue;
+      const other = await store.get(h.id);
+      if (!other?.platform.acl.roleOf(user.id, h.id)) continue;
+      for (const m of await members(other, h.id, auth)) {
+        if (m.id === user.id || here.has(m.id) || elsewhere.some((e) => e.id === m.id)) continue;
+        elsewhere.push({ householdId: h.id, householdName: h.name, id: m.id, name: m.name, avatar: m.avatar });
+      }
+    }
+    return c.json({
+      group: { last: await last(null) },
+      people: await Promise.all(
+        everyone.filter((m) => m.id !== user.id).map(async (m) => ({ id: m.id, name: m.name, avatar: m.avatar, role: m.role, last: await last(`dm:${[user.id, m.id].sort().join(':')}`) })),
+      ),
+      bots: await Promise.all(CHARACTER_IDS.map(async (id) => ({ id, last: await last(`bot:${id}:${user.id}`) }))),
+      elsewhere,
+    });
   });
 
   app.delete('/api/households/:hid/messages/:mid', async (c) => {
@@ -1243,7 +1414,7 @@ export async function createServer(options: ServerOptions) {
     if (!row) throw new HttpError(404, 'not_found');
     if (row.user_id !== user.id) throw new HttpError(403, 'forbidden');
     await db.run('DELETE FROM messages WHERE id = ?', row.id);
-    hub.publish(householdId, { type: 'message_deleted', id: row.id });
+    publishMessage(householdId, row.conversation, { type: 'message_deleted', id: row.id });
     return c.json({ ok: true });
   });
 
@@ -1353,6 +1524,13 @@ export async function createServer(options: ServerOptions) {
       data.visibility === undefined && existing ? existing.visibility : oneOf(data.visibility, CAL_VISIBILITY, 'visibility', 'home');
     return { title, date, time, endTime, note, people, tag, visibility };
   };
+  const insertCalendar = async (row: CalendarRow) => {
+    await db.run(
+      'INSERT INTO calendar_events (id, household_id, title, date, time, end_time, note, people, tag, visibility, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      row.id, row.household_id, row.title, row.date, row.time, row.end_time, row.note, row.people, row.tag, row.visibility, row.created_by, row.created_at, row.updated_at,
+    );
+    hub.publish(row.household_id, { type: 'changed', area: 'calendar' });
+  };
   const findEvent = async (householdId: string, id: string, userId: string, role: Role) => {
     const row = await db.get<CalendarRow>('SELECT * FROM calendar_events WHERE id = ? AND household_id = ?', id, householdId);
     if (!row || !canSeeEvent(row, userId, role)) throw new HttpError(404, 'not_found');
@@ -1386,11 +1564,7 @@ export async function createServer(options: ServerOptions) {
       id: `cal_${randomUUID()}`, household_id: householdId, title: f.title, date: f.date, time: f.time, end_time: f.endTime, note: f.note,
       people: JSON.stringify(f.people), tag: f.tag, visibility: f.visibility, created_by: user.id, created_at: now, updated_at: now,
     };
-    await db.run(
-      'INSERT INTO calendar_events (id, household_id, title, date, time, end_time, note, people, tag, visibility, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      row.id, row.household_id, row.title, row.date, row.time, row.end_time, row.note, row.people, row.tag, row.visibility, row.created_by, row.created_at, row.updated_at,
-    );
-    hub.publish(householdId, { type: 'changed', area: 'calendar' });
+    await insertCalendar(row);
     return c.json(calendarDto(home, row, user.id, role), 201);
   });
 

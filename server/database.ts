@@ -251,6 +251,10 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
      updated_at TEXT NOT NULL
    );
    CREATE INDEX calendar_events_household ON calendar_events(household_id, date)`,
+  // 9: private chats. NULL = the home's group chat; 'dm:<a>:<b>' = two people;
+  //    'bot:<character>:<user>' = one person and MATE or a character.
+  () => `ALTER TABLE messages ADD COLUMN conversation TEXT;
+   CREATE INDEX messages_conversation ON messages(household_id, conversation, seq)`,
 ];
 
 async function migrate(db: Database): Promise<void> {

@@ -568,3 +568,18 @@ dl.details dd { margin: 0; }
 .msg.mine .cal-chip { align-self: flex-end; }
 .muted.small { font-size: 14px; }
 .cal-reminder { position: sticky; top: calc(env(safe-area-inset-top) + 8px); z-index: 15; box-shadow: 0 4px 14px rgb(0 0 0 / 0.08); }
+
+/* ── Conversations ───────────────────────────────────────────────── */
+.conv-btn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; position: relative; text-align: left; }
+.conv-btn .caret { color: var(--muted); font-size: 12px; }
+.conv-btn .dot, .conv-row .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
+.conv-emoji { width: 36px; height: 36px; display: grid; place-items: center; font-size: 22px; flex: none; }
+.conv-row[aria-current='true'] { border-color: var(--ink); }
+.chat-note { margin: 0 16px 6px; font-size: 13.5px; color: var(--muted); background: var(--surface-2); border-radius: 12px; padding: 8px 12px; }
+.bot-list { margin: 8px 0 0; padding-left: 18px; }
+.bot-list li { margin: 3px 0; }
+.bot-list.examples { list-style: none; padding: 0; }
+.bot-list.examples .link-btn { text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; }
+.bot-chips { padding: 2px 16px 8px; margin: 0; }
+.bot-chips .chip { min-height: 32px; font-size: 14px; }
+.chat-page .chat-head { padding: 4px 16px 8px; }
