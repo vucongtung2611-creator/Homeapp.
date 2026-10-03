@@ -26,7 +26,7 @@ export class HouseholdStore {
     private readonly clock?: () => Date,
   ) {}
 
-  async create(owner: User, input: { name: string; currency: string; kind: 'share_house' | 'family' }): Promise<string> {
+  async create(owner: User, input: { name: string; currency: string; kind: 'share_house' | 'family' | 'personal' }): Promise<string> {
     const app = createHomeApp({ clock: this.clock });
     const home = app.platform.createHousehold(input.name, { userId: owner.id, name: owner.name }, { kind: input.kind, currency: input.currency });
     const now = new Date().toISOString();
@@ -130,12 +130,24 @@ export class HouseholdStore {
     this.cache.delete(householdId);
   }
 
+  /** The homes someone belongs to (their personal space is not one of them). */
   householdsOf(userId: string): Promise<HouseholdRow[]> {
     return this.db.all<HouseholdRow>(
       `SELECT h.id, h.name, m.role FROM memberships m JOIN households h ON h.id = m.household_id
-       WHERE m.user_id = ? ORDER BY m.joined_at`,
+       WHERE m.user_id = ? AND h.personal_of IS NULL ORDER BY m.joined_at`,
       userId,
     );
+  }
+
+  /** Each person's own private space (for the Personal library), made on first use. */
+  async personalSpace(user: User): Promise<string> {
+    return this.withLock(`personal:${user.id}`, async () => {
+      const row = await this.db.get<{ id: string }>('SELECT id FROM households WHERE personal_of = ?', user.id);
+      if (row) return row.id;
+      const id = await this.create(user, { name: 'Personal', currency: 'USD', kind: 'personal' });
+      await this.db.run('UPDATE households SET personal_of = ? WHERE id = ?', user.id, id);
+      return id;
+    });
   }
 
   /** The member's role, or undefined when they are not a member (the source of truth is the graph). */

@@ -13,7 +13,7 @@ export interface PersonProps extends Record<string, unknown> {
 }
 
 export interface HomeProps extends Record<string, unknown> {
-  kind: 'family' | 'share_house' | 'single';
+  kind: 'family' | 'share_house' | 'single' | 'personal';
   currency: string;
   address?: string;
 }

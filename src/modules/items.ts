@@ -142,8 +142,19 @@ export class Items {
 
   get(actorId: string, itemId: string): GraphNode<HouseItemProps> {
     const item = this.require(itemId);
-    this.p.acl.assertRead(actorId, item);
+    if (!this.canSee(actorId, item)) throw new PermissionDeniedError(actorId, 'read', itemId);
     return item;
+  }
+
+  /**
+   * Who sees an item: its creator always; otherwise the role rules — and an
+   * item marked for managers is only for the home's owners and managers.
+   */
+  canSee(actorId: string, item: GraphNode<HouseItemProps>): boolean {
+    if (!this.p.acl.canRead(actorId, item)) return false;
+    if (item.props.attributes?.audience !== 'managers' || item.ownerId === actorId) return true;
+    const role = this.p.acl.roleOf(actorId, item.householdId);
+    return role === 'owner' || role === 'manager';
   }
 
   /** Search by words (accent-insensitive, all must match) and/or tag. Newest first. */
@@ -156,6 +167,7 @@ export class Items {
     const tag = query.tag ? foldText(query.tag) : undefined;
     return this.p.acl
       .visible<HouseItemProps>(actorId, householdId, 'item')
+      .filter((n) => this.canSee(actorId, n))
       .filter((n) => n.props.space === (query.space ?? 'library'))
       .filter((n) => !query.kind || n.props.kind === query.kind)
       .filter((n) => !query.collection || n.props.attributes?.collection === query.collection)

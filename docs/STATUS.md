@@ -23,7 +23,10 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 | Chat | Chữ và ảnh, đến ngay (SSE). Tự ngắt sau 3 phút không dùng, tự nối lại và tải tin bị lỡ |
 | Emoji, nhãn dán, tên nhóm | 48 emoji chèn đúng chỗ con trỏ; 12 nhãn dán có chữ theo ngôn ngữ người đọc; chủ nhà và quản lý đổi tên nhóm chat (cả nhà được báo) |
 | Ảnh từ thư viện máy | Nút ảnh mở thư viện ảnh của điện thoại (hoặc máy ảnh, tuỳ máy) |
-| Thư viện | Ghi chú, ảnh, tài liệu PDF; nhãn; mục riêng tư; tìm không dấu |
+| Thư viện | Ghi chú, ảnh, tài liệu PDF; nhãn; tìm không dấu |
+| Thư viện Cá nhân / Nhà | Công tắc hai chế độ. Cá nhân: không gian riêng cố định của mỗi người, chỉ mình thấy, giống nhau ở mọi nhà. Nhà: thư viện riêng của từng nhà, có bộ chọn nhà, các bộ sưu tập chỉ hiện ở chế độ Nhà |
+| Ai nhìn thấy | Mỗi mục ghi rõ: Chỉ mình tôi / Cả nhà / Chủ nhà và quản lý (file đính kèm cũng theo đúng quyền đó) |
+| Ví dụ mẫu | Nhà mới có sẵn ví dụ thực tế cho mọi bộ sưu tập; bộ sưu tập trống có nút "Thêm ví dụ mẫu"; xoá hết bằng một nút |
 | Bộ sưu tập | Công thức, mong muốn, mua sắm, danh bạ, nội quy, hồ sơ thuê nhà; có mẫu sẵn và trạng thái trống |
 | Hồ sơ thuê nhà | Loại giấy tờ (hợp đồng, cọc, biên bản, biên lai, sửa chữa), ngày, ngày hết hạn, số tiền |
 | Nhắc hết hạn | Trong app: banner "sắp hết hạn" 30 ngày trước, nhãn đỏ khi đã hết hạn |

@@ -231,6 +231,9 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
   // 6: guests stay for a set number of days.
   () => `ALTER TABLE invites ADD COLUMN guest_days INTEGER;
    ALTER TABLE join_requests ADD COLUMN guest_days INTEGER`,
+  // 7: everyone's own private space for the Personal library (a hidden, one-person "home").
+  () => `ALTER TABLE households ADD COLUMN personal_of TEXT;
+   CREATE INDEX households_personal ON households(personal_of)`,
 ];
 
 async function migrate(db: Database): Promise<void> {

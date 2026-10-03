@@ -75,8 +75,9 @@ test('sample data: new homes start with samples the owner can clear', async () =
   const [linh, an] = clients as [Client, Client];
   assert.equal((await linh.get(`/api/households/${hid}/money`)).data.bills[0].sample, true);
   // Linh sees her private sample note; An does not.
-  assert.equal((await linh.get(`/api/households/${hid}/items`)).data.items.length, 4);
-  assert.equal((await an.get(`/api/households/${hid}/items`)).data.items.length, 3);
+  // 4 sample notes + 7 shelf examples (recipes, wishlist, shopping, contacts, rules, 2 rental).
+  assert.equal((await linh.get(`/api/households/${hid}/items`)).data.items.length, 11);
+  assert.equal((await an.get(`/api/households/${hid}/items`)).data.items.length, 10);
   assert.equal((await an.del(`/api/households/${hid}/samples`)).status, 403);
   await linh.del(`/api/households/${hid}/samples`);
   assert.deepEqual((await linh.get(`/api/households/${hid}/items`)).data.items, []);

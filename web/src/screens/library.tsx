@@ -6,6 +6,8 @@ import { EmptyState, ErrorState, Icon, Lightbox, Sheet, Skeleton, Spinner, Switc
 import { formatDate, formatMoney, formatNumber, t, type MessageKey } from '../i18n/index.js';
 import { Illustration, RoomArt } from '../illustrations.js';
 import { errorText, todayIso } from '../util.js';
+import { getLocale } from '../i18n/index.js';
+import { navigate, type Session } from '../router.js';
 
 type Kind = Item['kind'];
 const KIND_EMOJI: Record<Kind, string> = { note: '📝', photo: '🖼️', document: '📄', link: '🔗' };
@@ -19,7 +21,86 @@ const KIND = new Proxy({} as Record<Kind, { label: string; emoji: string }>, {
   get: (_, k: string) => ({ label: t(`library.kinds.${k}` as MessageKey), emoji: KIND_EMOJI[k as Kind] }),
 });
 
-export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
+const MODE_KEY = 'homeapp:library-mode';
+const VIS_EMOJI = { me: '🔒', home: '👥', managers: '🛡️' } as const;
+/** "Who sees this", as a small label. */
+function Visibility({ item, personal }: { item: Item; personal?: boolean }) {
+  const v = personal ? 'me' : item.visibility;
+  return (
+    <span class={`badge vis-${v}`} title={t(`library.visibility.${v}` as MessageKey)}>
+      {VIS_EMOJI[v]} {t(`library.visibility.${v}` as MessageKey)}
+    </span>
+  );
+}
+
+/**
+ * The Library tab: a switch between Personal (your own private space, the
+ * same in every home) and Home (this home's shared library, with shelves).
+ */
+export function LibraryTab({ home, live, session }: { home: Household; live: Live; session: Session }) {
+  const [mode, setMode] = useState<'me' | 'home'>(() => {
+    try {
+      return localStorage.getItem(MODE_KEY) === 'me' ? 'me' : 'home';
+    } catch {
+      return 'home';
+    }
+  });
+  const choose = (m: 'me' | 'home') => {
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {}
+  };
+  const personal = useLoad(
+    () => (mode === 'me' ? api<{ id: string }>('GET', '/api/me/personal').then((r) => api<Household>('GET', `/api/households/${r.id}`)) : Promise.resolve(undefined)),
+    [mode, session.user?.id],
+  );
+  return (
+    <>
+      <div class="page library-top">
+        <div class="segmented library-mode" role="group" aria-label={t('library.modeLabel')} data-testid="library-mode">
+          <button type="button" aria-pressed={mode === 'me'} onClick={() => choose('me')}>
+            🔒 {t('library.modeMe')}
+          </button>
+          <button type="button" aria-pressed={mode === 'home'} onClick={() => choose('home')}>
+            🏠 {t('library.modeHome')}
+          </button>
+        </div>
+        {mode === 'home' && session.households.length > 1 && (
+          <select
+            class="input"
+            aria-label={t('library.whichHome')}
+            value={home.id}
+            onChange={(e) => navigate(`/h/${e.currentTarget.value}/library`)}
+            data-testid="library-home"
+          >
+            {session.households.map((h) => (
+              <option key={h.id} value={h.id}>
+                🏠 {h.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <p class="hint" style={{ margin: '6px 2px 0' }}>
+          {mode === 'me' ? t('library.modeMeHint') : t('library.modeHomeHint', { home: home.name })}
+        </p>
+      </div>
+      {mode === 'home' ? (
+        <LibraryScreen key={home.id} home={home} live={live} />
+      ) : personal.data ? (
+        <LibraryScreen key={personal.data.id} home={personal.data} live={live} personal />
+      ) : personal.error ? (
+        <ErrorState error={personal.error} onRetry={() => personal.reload()} />
+      ) : (
+        <div class="page">
+          <Skeleton />
+        </div>
+      )}
+    </>
+  );
+}
+
+export function LibraryScreen({ home, live, personal = false }: { home: Household; live: Live; personal?: boolean }) {
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
   const [tag, setTag] = useState<string>();
@@ -80,7 +161,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
           onInput={(e) => setQ(e.currentTarget.value)}
         />
       </div>
-      {!query && !collection && data.data && (
+      {!personal && !query && !collection && data.data && (
         <div class="shelves" role="group" aria-label={t('library.collectionsLabel')} data-testid="shelves">
           {COLLECTIONS.map((c) => (
             <button class="shelf" key={c} onClick={() => setCollection(c)}>
@@ -91,7 +172,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
           ))}
         </div>
       )}
-      {!filtered && (data.data?.expiring.length ?? 0) > 0 && (
+      {!personal && !filtered && (data.data?.expiring.length ?? 0) > 0 && (
         <div class="banner" role="status" data-testid="expiring">
           <span>
             ⏰ {t('library.expiringTitle', { count: data.data!.expiring.length })}{' '}
@@ -137,9 +218,22 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
             text={t(`library.shelfEmptyText.${collection}` as MessageKey)}
             action={
               canAdd && (
-                <button class="btn" onClick={() => addTo(collection)}>
-                  {t('library.addToShelf', { name: shelf(collection).label })}
-                </button>
+                <div class="row" style={{ justifyContent: 'center' }}>
+                  <button class="btn" onClick={() => addTo(collection)}>
+                    {t('library.addToShelf', { name: shelf(collection).label })}
+                  </button>
+                  <button
+                    class="btn secondary"
+                    data-testid="add-examples"
+                    onClick={() =>
+                      api('POST', `/api/households/${home.id}/samples`, { collection, locale: getLocale() })
+                        .then(() => (toast(t('library.examplesAdded')), data.reload(true)))
+                        .catch(toastError)
+                    }
+                  >
+                    {t('library.addExamples')}
+                  </button>
+                </div>
               )
             }
           />
@@ -176,15 +270,14 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
                 <Thumb item={item} />
                 <span class="grow">
                   <span class="title">
-                    {item.private && (
-                      <span class="lock" aria-label={t('library.privateLabel')} title={t('library.onlyYou')}>
-                        <Icon.lock />
-                      </span>
-                    )}
                     {item.title}
                   </span>
                   <span class="meta">
                     {item.body ? item.body.split('\n')[0] : item.attachments.length ? t('library.files', { count: item.attachments.length }) : KIND[item.kind].label}
+                  </span>
+                  <span style={{ display: 'block', marginTop: 6 }}>
+                    <Visibility item={item} personal={personal} />{' '}
+                    {item.sample && <span class="badge">{t('common.sample')}</span>}
                   </span>
                   {(item.collection || item.expiresOn) && (
                     <span style={{ display: 'block', marginTop: 6 }}>
@@ -203,7 +296,6 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
                           #{tag}
                         </span>
                       ))}
-                      {item.sample && <span class="badge">{t('common.sample')}</span>}
                     </span>
                   )}
                 </span>
@@ -214,7 +306,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
       )}
 
       {canAdd && (
-      <button class="fab" onClick={() => (collection ? addTo(collection) : setChoosing(true))}>
+      <button class="fab" onClick={() => (collection ? addTo(collection) : setChoosing(true))} data-testid="library-add">
         <Icon.plus /> {t('common.add')}
       </button>
       )}
@@ -239,8 +331,8 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
               </button>
             ))}
           </div>
-          <h3 class="subhead">{t('library.orShelf')}</h3>
-          <div class="shelf-grid">
+          {!personal && <h3 class="subhead">{t('library.orShelf')}</h3>}
+          {!personal && <div class="shelf-grid">
             {COLLECTIONS.map((c) => (
               <button
                 class="shelf"
@@ -254,7 +346,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
                 <span class="name">{shelf(c).label}</span>
               </button>
             ))}
-          </div>
+          </div>}
         </Sheet>
       )}
       {open && !editing && (
@@ -275,6 +367,7 @@ export function LibraryScreen({ home, live }: { home: Household; live: Live }) {
           item={editing.item}
           kind={editing.kind}
           collection={editing.collection}
+          personal={personal}
           onClose={() => setEditing(undefined)}
           onSaved={(saved) => {
             setEditing(undefined);
@@ -312,7 +405,8 @@ function ItemSheet(props: { item: Item; home: Household; onClose: () => void; on
     <Sheet title={item.title} onClose={props.onClose}>
       <p class="muted" style={{ marginTop: -8 }}>
         {t('library.meta', { kind: KIND[item.kind].label, owner: item.ownerName, date: formatDate(item.updatedAt, 'medium') })}
-        {item.private && ` · 🔒 ${t('library.onlyYou')}`}
+        {' · '}
+        <Visibility item={item} />
       </p>
       {item.attachments.filter((a) => isImage(a.mime)).map((a) => (
         <img key={a.fileId} class="photo-full" src={a.url} alt={a.name} onClick={() => setLightbox(a.url)} />
@@ -395,7 +489,7 @@ interface Pending {
   error?: string;
 }
 
-function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collection?: Collection; onClose: () => void; onSaved: (item: Item) => void }) {
+function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collection?: Collection; personal?: boolean; onClose: () => void; onSaved: (item: Item) => void }) {
   const { home, item } = props;
   const [title, setTitle] = useState(item?.title ?? '');
   const [collection, setCollection] = useState<Collection | ''>(item?.collection ?? props.collection ?? '');
@@ -406,7 +500,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collecti
   const [amountText, setAmountText] = useState(item?.amount != null ? String(item.amount) : '');
   const [tags, setTags] = useState<string[]>(item?.tags ?? []);
   const [tagDraft, setTagDraft] = useState('');
-  const [isPrivate, setPrivate] = useState(item?.private ?? false);
+  const [visibility, setVisibility] = useState<Item['visibility']>(item?.visibility ?? 'home');
   const [files, setFiles] = useState<Pending[]>(
     item?.attachments.map((a) => ({ key: a.fileId, name: a.name, progress: 1, preview: isImage(a.mime) ? a.url : undefined, file: { ...a, id: a.fileId } })) ?? [],
   );
@@ -465,7 +559,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collecti
         payload.docType = docType;
         payload.amount = amountText.trim() ? Number(amountText.replace(/[^\d.]/g, '')) : null;
       }
-      if (!item || item.canChangePrivacy) payload.private = isPrivate;
+      if (!props.personal && (!item || item.canChangePrivacy)) payload.visibility = visibility;
       const saved = item
         ? await api<Item>('PATCH', `/api/households/${home.id}/items/${item.id}`, payload)
         : await api<Item>('POST', `/api/households/${home.id}/items`, { ...payload, kind: props.kind });
@@ -522,7 +616,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collecti
             <p class="hint">{t('library.fileHint')}</p>
           </div>
         )}
-        <label class="field">
+        {!props.personal && <label class="field">
           <span>{t('library.shelf')}</span>
           <select
             class="input"
@@ -542,7 +636,7 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collecti
               </option>
             ))}
           </select>
-        </label>
+        </label>}
         {collection === 'rental' && (
           <div class="grid2">
             <label class="field">
@@ -610,8 +704,17 @@ function EditorSheet(props: { home: Household; item?: Item; kind: Kind; collecti
             />
           </div>
         </div>
-        {(!item || item.canChangePrivacy) && (
-          <Switch checked={isPrivate} onChange={setPrivate} label={`🔒 ${t('library.privateSwitch')}`} hint={t('library.privateHint')} />
+        {!props.personal && (!item || item.canChangePrivacy) && (
+          <label class="field">
+            <span>{t('library.whoSees')}</span>
+            <select class="input" name="visibility" value={visibility} onChange={(e) => setVisibility(e.currentTarget.value as Item['visibility'])}>
+              {(['me', 'home', 'managers'] as const).map((v) => (
+                <option key={v} value={v}>
+                  {VIS_EMOJI[v]} {t(`library.visibility.${v}` as MessageKey)}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         {error && (
           <p class="error-text" role="alert">

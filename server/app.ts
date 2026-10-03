@@ -25,7 +25,7 @@ import { Auth, AuthError, RateLimiter, newInviteCode, newToken, normalizeInviteC
 import { openPostgresUrl, openSqlite, type Database } from './database.js';
 import { FileStore, MAX_UPLOAD_BYTES, type StoredFile } from './files.js';
 import { RealtimeHub } from './realtime.js';
-import { clearSamples, hasRealContent, hasSamples, seedSamples } from './seed.js';
+import { clearSamples, hasRealContent, hasSamples, seedSamples, seedShelf } from './seed.js';
 import { HouseholdStore } from './store.js';
 import {
   BILL_CATEGORIES,
@@ -239,6 +239,12 @@ export async function createServer(options: ServerOptions) {
     if (m.role !== 'owner') throw new HttpError(403, 'owner_only');
     return m;
   };
+  /** Someone's personal space is theirs alone: no inviting, roles or handing over. */
+  const isPersonal = (home: HomeApp, householdId: string) => home.platform.graph.requireNode(householdId).props.kind === 'personal';
+  const notPersonal = <T extends { home: HomeApp; householdId: string }>(m: T): T => {
+    if (isPersonal(m.home, m.householdId)) throw new HttpError(403, 'personal_space');
+    return m;
+  };
   // ── Home inbox: a record of what happened, also the owner's home log ──
   // 'members' events (joins, leaving, roles) are seen by everyone in the
   // home; 'managers' events (requests, invites) only by those who manage it.
@@ -378,6 +384,12 @@ export async function createServer(options: ServerOptions) {
     return c.json({ user: await auth.getUser(user.id) });
   });
 
+  /** Your own private space for the Personal library (made the first time it's opened). */
+  app.get('/api/me/personal', async (c) => {
+    const user = requireUser(c);
+    return c.json({ id: await store.personalSpace(user) });
+  });
+
   app.get('/api/me', async (c) => {
     const user = c.get('user');
     const config = { chatIdleMinutes: chatIdleMs / 60_000 };
@@ -425,6 +437,7 @@ export async function createServer(options: ServerOptions) {
       canInvite: MANAGER_ROLES.includes(role),
       approveJoins: node.props.approveJoins !== false,
       chatName: (node.props.chatName as string | undefined) ?? null,
+      personal: node.props.kind === 'personal',
       canDelete: role === 'owner' && (await deletable(home, householdId)),
       unreadInbox: await unreadCount(user.id, householdId, role),
       pendingRequests:
@@ -446,7 +459,7 @@ export async function createServer(options: ServerOptions) {
   };
 
   app.delete('/api/households/:hid', async (c) => {
-    const { householdId, home } = await requireOwner(c);
+    const { householdId, home } = notPersonal(await requireOwner(c));
     await store.withLock(householdId, async () => {
       if (!(await deletable(home, householdId))) throw bad('home_not_empty');
       await store.remove(householdId);
@@ -468,7 +481,7 @@ export async function createServer(options: ServerOptions) {
   });
 
   app.patch('/api/households/:hid', async (c) => {
-    const { user, householdId } = await requireOwner(c);
+    const { user, householdId } = notPersonal(await requireOwner(c));
     const data = await body(c);
     if (data.approveJoins !== undefined) {
       const approveJoins = bool(data.approveJoins, true);
@@ -477,6 +490,20 @@ export async function createServer(options: ServerOptions) {
     }
     hub.publish(householdId, { type: 'changed', area: 'household' });
     return c.json({ ok: true });
+  });
+
+  /** Fill an empty shelf with realistic examples (marked as samples, removable in one tap). */
+  app.post('/api/households/:hid/samples', async (c) => {
+    const { user, householdId, home } = notPersonal(await requireMember(c));
+    limit(limits.write, user.id);
+    const data = await body(c);
+    const collection = oneOf(data.collection, COLLECTIONS, 'collection');
+    const locale = typeof data.locale === 'string' ? data.locale.slice(0, 10) : 'en';
+    if (!home.platform.acl.canCreate(user.id, householdId, 'library')) throw new HttpError(403, 'forbidden');
+    if (home.items.list(user.id, householdId, { collection }).length > 0) throw bad('shelf_not_empty');
+    const added = await store.mutate(householdId, (h) => seedShelf(h, householdId, user.id, new Date(), locale, collection));
+    hub.publish(householdId, { type: 'changed', area: 'library' });
+    return c.json({ added }, 201);
   });
 
   app.delete('/api/households/:hid/samples', async (c) => {
@@ -514,7 +541,7 @@ export async function createServer(options: ServerOptions) {
   const memberRoles = (home: HomeApp, householdId: string): Role[] => ['owner', ...joinRoles(home, householdId, 'owner')];
 
   app.patch('/api/households/:hid/members/:uid', async (c) => {
-    const { user, householdId, home } = await requireOwner(c);
+    const { user, householdId, home } = notPersonal(await requireOwner(c));
     const target = c.req.param('uid');
     const from = home.platform.acl.roleOf(target, householdId);
     if (!from) throw new HttpError(404, 'not_found');
@@ -533,7 +560,7 @@ export async function createServer(options: ServerOptions) {
 
   /** Hand the home over: the other person becomes owner, you become a manager. */
   app.post('/api/households/:hid/transfer', async (c) => {
-    const { user, householdId, home } = await requireOwner(c);
+    const { user, householdId, home } = notPersonal(await requireOwner(c));
     const to = String((await body(c)).to ?? '');
     const role = home.platform.acl.roleOf(to, householdId);
     if (!role || to === user.id) throw bad('to_invalid');
@@ -581,7 +608,7 @@ export async function createServer(options: ServerOptions) {
     return wanted as Role;
   };
   const requireManager = async (c: Context<Env>) => {
-    const m = await requireMember(c);
+    const m = notPersonal(await requireMember(c));
     if (!MANAGER_ROLES.includes(m.role)) throw new HttpError(403, 'owner_only');
     return m;
   };
@@ -1087,7 +1114,7 @@ export async function createServer(options: ServerOptions) {
     if (!home?.platform.acl.roleOf(userId, file.household_id)) return false;
     if (file.uploader_id === userId) return true;
     if (await db.get('SELECT 1 AS x FROM messages WHERE household_id = ? AND file_id = ?', file.household_id, file.id)) return true;
-    return home.items.referencing(file.household_id, file.id).some((item) => home.platform.acl.canRead(userId, item));
+    return home.items.referencing(file.household_id, file.id).some((item) => home.items.canSee(userId, item));
   }
 
   /** Attachments must be the actor's own uploads in this household — no borrowing someone else's private file. */
@@ -1261,8 +1288,20 @@ export async function createServer(options: ServerOptions) {
 
   // ── Library ──────────────────────────────────────────────────────────
   /** Collection and record details from a request; `existing` keeps what isn't sent. */
+  /** "me" (private), "home" (everyone by role) or "managers" (owners and managers). */
+  const itemVisibility = (data: Record<string, unknown>) =>
+    data.visibility !== undefined
+      ? oneOf(data.visibility, ['me', 'home', 'managers'] as const, 'visibility')
+      : data.private === undefined
+        ? undefined
+        : bool(data.private, false)
+          ? 'me'
+          : 'home';
   const itemAttributes = (data: Record<string, unknown>, existing: Record<string, unknown> = {}) => {
     const out: Record<string, unknown> = { ...existing };
+    const visibility = itemVisibility(data);
+    if (visibility === 'managers') out.audience = 'managers';
+    else if (visibility !== undefined) delete out.audience;
     const set = (key: string, value: unknown) => (value === undefined ? undefined : value === null || value === '' ? delete out[key] : (out[key] = value));
     if (data.collection !== undefined) set('collection', data.collection === null || data.collection === '' ? null : oneOf(data.collection, COLLECTIONS, 'collection'));
     if (data.docType !== undefined) set('docType', data.docType === null || data.docType === '' ? null : oneOf(data.docType, RENTAL_DOCS, 'docType'));
@@ -1282,6 +1321,7 @@ export async function createServer(options: ServerOptions) {
     const a = item.props.attributes ?? {};
     return {
       collection: (a.collection as string | undefined) ?? null,
+      visibility: item.visibility === 'private' ? 'me' : a.audience === 'managers' ? 'managers' : 'home',
       docType: (a.docType as string | undefined) ?? null,
       date: (a.date as string | undefined) ?? null,
       expiresOn: (a.expiresOn as string | undefined) ?? null,
@@ -1346,7 +1386,8 @@ export async function createServer(options: ServerOptions) {
         tags: tags(data.tags),
         attachments,
         attributes: itemAttributes(data),
-        private: bool(data.private, false),
+        // In a personal space everything is yours alone.
+        private: isPersonal(home, householdId) || itemVisibility(data) === 'me',
       }),
     );
     hub.publish(householdId, { type: 'changed', area: 'library' });
@@ -1363,15 +1404,17 @@ export async function createServer(options: ServerOptions) {
       data.attachmentIds === undefined
         ? undefined
         : await ownUploads(user.id, householdId, ids(data.attachmentIds, 'attachmentIds'), existing.props.attachments.map((a) => a.fileId));
-    if (data.private !== undefined && existing.ownerId !== user.id) throw new HttpError(403, 'forbidden');
+    if ((data.private !== undefined || data.visibility !== undefined) && existing.ownerId !== user.id) throw new HttpError(403, 'forbidden');
     const item = await store.mutate(householdId, (h) =>
       h.items.update(user.id, existing.id, {
         title: str(data.title, { max: 200, field: 'title' }),
         body: data.body === undefined ? undefined : (str(data.body, { max: 20_000, field: 'body' }) ?? ''),
         tags: data.tags === undefined ? undefined : tags(data.tags),
         attachments,
-        attributes: ['collection', 'docType', 'date', 'expiresOn', 'amount'].some((k) => data[k] !== undefined) ? itemAttributes(data, existing.props.attributes) : undefined,
-        private: data.private === undefined ? undefined : bool(data.private, false),
+        attributes: ['collection', 'docType', 'date', 'expiresOn', 'amount', 'visibility', 'private'].some((k) => data[k] !== undefined)
+          ? itemAttributes(data, existing.props.attributes)
+          : undefined,
+        private: itemVisibility(data) === undefined ? undefined : isPersonal(home, householdId) || itemVisibility(data) === 'me',
       }),
     );
     hub.publish(householdId, { type: 'changed', area: 'library' });

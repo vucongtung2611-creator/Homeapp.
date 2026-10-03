@@ -201,7 +201,7 @@ try {
   await expect((await hoa.page.getByRole('link', { name: 'Hóa đơn' }).count()) === 0, 'no Bills tab for a guest');
   await hoa.page.getByRole('link', { name: 'Thư viện' }).click();
   await hoa.page.getByPlaceholder('Tìm ghi chú, giấy tờ, ảnh…').waitFor();
-  await expect((await hoa.page.getByRole('button', { name: 'Thêm' }).count()) === 0, 'no Add button for a guest');
+  await expect((await hoa.page.getByTestId('library-add').count()) === 0, 'no Add button for a guest in the home library');
   await hoa.page.getByRole('button', { name: 'Cài đặt nhà' }).click();
   await hoa.page.getByText('Bạn là khách trong nhà này đến').waitFor();
   await shot(hoa.page, '05e-guest');
@@ -268,7 +268,7 @@ try {
   await p.locator('.msg .sticker', { hasText: 'Cảm ơn nha!' }).waitFor({ timeout: 5000 });
   await p.getByRole('button', { name: 'Đổi tên nhóm chat' }).click();
   await p.getByLabel('Tên nhóm chat').fill('Nhà mình 🏡');
-  await p.getByRole('button', { name: 'Lưu' }).click();
+  await p.getByRole('button', { name: 'Lưu', exact: true }).click();
   await q.getByTestId('chat-name').getByText('Nhà mình 🏡').waitFor({ timeout: 5000 });
   await q.getByText('Linh đã đổi tên nhóm chat thành “Nhà mình 🏡”').waitFor();
   step('emoji picker, a sticker, and the group chat renamed — all live on both phones');
@@ -301,15 +301,16 @@ try {
   // ── 5. Library ───────────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Thư viện' }).click();
   await p.getByText('Wi-Fi nhà mình').waitFor();
-  await waitCount(p, 4, 'Linh sees 4 sample items (incl. her private note)');
+  // 4 sample notes + 7 shelf examples; Linh also sees her private sample note.
+  await waitCount(p, 11, 'Linh sees 11 sample items (incl. her private note)');
   await shot(p, '08-library');
   await q.getByRole('link', { name: 'Thư viện' }).click();
   await q.getByText('Wi-Fi nhà mình').waitFor();
-  await waitCount(q, 3, 'An does not see Linh’s private note');
+  await waitCount(q, 10, 'An does not see Linh’s private note');
   await expect((await q.getByText('Ghi chú riêng của bạn').count()) === 0, 'private note hidden from An');
   step('library: private note hidden from housemate');
 
-  await q.getByLabel('Tìm trong thư viện').fill('noi quy');
+  await q.getByLabel('Tìm trong thư viện').fill('nguoi kia rua bat');
   await q.getByText('Nội quy chung').waitFor();
   await waitCount(q, 1, 'accent-insensitive search');
   await q.getByLabel('Tìm trong thư viện').fill('khong co gi');
@@ -321,16 +322,16 @@ try {
   // An adds a note with tags and a photo attachment
   await q.getByRole('button', { name: 'Thêm', exact: true }).click();
   await q.getByRole('dialog').getByRole('button', { name: /Ghi chú/ }).click();
-  await q.getByLabel('Tiêu đề').fill('Hợp đồng thuê nhà');
+  await q.getByLabel('Tiêu đề').fill('Hợp đồng gửi xe');
   await q.getByLabel('Nội dung').fill('Hết hạn 30/06/2027. Cọc 2 tháng.');
   await q.getByLabel('Thêm nhãn').fill('giấy tờ');
   await q.keyboard.press('Enter');
   await q.getByLabel('Thêm nhãn').fill('nhà');
   await q.keyboard.press('Enter');
   await shot(q, '10-library-editor');
-  await q.getByRole('button', { name: 'Lưu' }).click();
+  await q.getByRole('button', { name: 'Lưu', exact: true }).click();
   await q.getByText('Đã thêm vào thư viện').waitFor();
-  await p.getByText('Hợp đồng thuê nhà').waitFor({ timeout: 5000 });
+  await p.getByText('Hợp đồng gửi xe').waitFor({ timeout: 5000 });
   step('note added by An appears on Linh’s phone in real time');
   await p.getByRole('button', { name: '#giấy tờ', exact: true }).click();
   await waitCount(p, 1, 'tag filter');
@@ -343,18 +344,46 @@ try {
   // Shelves: an empty shelf invites you in; a rental record with an expiry shows a reminder.
   await p.getByRole('button', { name: 'Tất cả', exact: true }).click();
   await p.getByTestId('shelves').getByRole('button', { name: /Hồ sơ thuê nhà/ }).click();
-  await p.getByRole('heading', { name: 'Chưa có hồ sơ thuê nhà' }).waitFor();
-  await p.getByRole('button', { name: 'Thêm vào Hồ sơ thuê nhà' }).click();
+  await p.locator('.list-item', { hasText: 'Hợp đồng thuê nhà — 12 tháng' }).getByText('Mẫu').waitFor();
+  await p.getByTestId('library-add').click();
   await p.locator('input[name=title]').fill('Hợp đồng thuê 2026');
   const soon = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
   await p.locator('input[name=expiresOn]').fill(soon);
   await p.locator('input[name=amount]').fill('8500000');
-  await p.getByRole('button', { name: 'Lưu' }).click();
+  await p.getByRole('button', { name: 'Lưu', exact: true }).click();
   await p.locator('.list-item', { hasText: 'Hợp đồng thuê 2026' }).getByText('còn 10 ngày').waitFor();
   await p.getByRole('button', { name: 'Bỏ lọc Hồ sơ thuê nhà' }).click();
   await p.getByTestId('expiring').getByText('Hợp đồng thuê 2026 (còn 10 ngày)').waitFor();
   await shot(p, '11b-shelves');
-  step('shelves: empty rental shelf → added a lease with an expiry → reminder banner');
+  step('shelves: rental shelf with a sample lease → added a real lease with an expiry → reminder banner');
+
+  // Personal library: Linh's own space; each item says who sees it.
+  await p.getByTestId('library-mode').getByRole('button', { name: /Cá nhân/ }).click();
+  await p.getByText('Không gian riêng của bạn').waitFor();
+  await p.getByTestId('library-add').click();
+  await p.getByRole('dialog').getByRole('button', { name: /Ghi chú/ }).click();
+  await p.getByLabel('Tiêu đề').fill('Số hộ chiếu');
+  await p.getByLabel('Nội dung').fill('C1234567 — hết hạn 2031');
+  await expect((await p.locator('select[name=visibility]').count()) === 0, 'no "who sees it" choice in the personal space');
+  await p.getByRole('button', { name: 'Lưu', exact: true }).click();
+  await p.locator('.list-item', { hasText: 'Số hộ chiếu' }).getByText('Chỉ mình tôi').waitFor();
+  await shot(p, '11c-personal');
+  await expect((await p.getByTestId('shelves').count()) === 0, 'no shelves in the personal library');
+  await p.getByTestId('library-mode').getByRole('button', { name: /Nhà/ }).click();
+  await p.getByTestId('shelves').waitFor();
+  await expect((await p.getByText('Số hộ chiếu').count()) === 0, 'personal note not in the home library');
+  await expect((await q.getByText('Số hộ chiếu').count()) === 0, 'An never sees it');
+  // An item only for owners and managers.
+  await p.getByTestId('library-add').click();
+  await p.getByRole('dialog').getByRole('button', { name: /Ghi chú/ }).click();
+  await p.getByLabel('Tiêu đề').fill('Mã két sắt');
+  await p.locator('select[name=visibility]').selectOption('managers');
+  await p.getByRole('button', { name: 'Lưu', exact: true }).click();
+  await p.locator('.list-item', { hasText: 'Mã két sắt' }).getByText('Chủ nhà và quản lý').waitFor();
+  await q.reload();
+  await q.getByText('Wi-Fi nhà mình').waitFor();
+  await expect((await q.getByText('Mã két sắt').count()) === 1, 'An is a manager now, so An sees it');
+  step('Personal library is Linh’s alone; home items show who sees them (me / home / owners & managers)');
 
   // ── 6. Bills: paste → parse → split → pay → who owes whom ────────────
   await p.getByRole('link', { name: 'Hóa đơn' }).click();
@@ -402,7 +431,7 @@ try {
   await q.getByLabel('Mua gì?').fill('Đi chợ cuối tuần');
   await q.getByLabel(/Số tiền/).fill('300.000');
   await shot(q, '16-expense');
-  await q.getByRole('button', { name: 'Lưu' }).click();
+  await q.getByRole('button', { name: 'Lưu', exact: true }).click();
   await q.getByText('Mọi người còn nợ bạn').waitFor();
   await p.getByText('Bạn cần trả').waitFor({ timeout: 5000 });
   step('shared expense split in real time');
@@ -440,6 +469,19 @@ try {
   await expect(/^mate-nha-12-le-loi-\d{4}-\d{2}-\d{2}\.zip$/.test(download.suggestedFilename()), `file name (${download.suggestedFilename()})`);
   step(`owner downloaded the whole home: ${download.suggestedFilename()} (${Math.round(zipBytes.length / 1024)} KB)`);
   await p.getByRole('link', { name: 'Chat' }).click();
+
+  // ── 7c. Clear the samples; an empty shelf offers examples ─────────────
+  await p.getByRole('button', { name: 'Cài đặt nhà' }).click();
+  await p.getByRole('button', { name: 'Xoá dữ liệu mẫu' }).click();
+  await p.getByRole('link', { name: 'Thư viện' }).click();
+  await p.getByTestId('shelves').getByRole('button', { name: /Công thức nấu ăn/ }).click();
+  await p.getByRole('heading', { name: 'Chưa có công thức nào' }).waitFor();
+  await p.getByTestId('add-examples').click();
+  await p.getByText('Gà xào rau củ (20 phút)').waitFor();
+  await shot(p, '11d-examples');
+  await p.getByRole('button', { name: 'Bỏ lọc Công thức nấu ăn' }).click();
+  await p.getByRole('link', { name: 'Chat' }).click();
+  step('samples cleared; an empty shelf filled with a realistic example in one tap');
 
   // ── 8. States: error + sign out ──────────────────────────────────────
   await linh.context.setOffline(true);

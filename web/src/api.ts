@@ -97,6 +97,8 @@ export interface Household {
   pendingRequests: number;
   /** The owner may delete the home: they're alone and nothing real is in it. */
   canDelete: boolean;
+  /** This is someone's personal space (the Personal library), not a home. */
+  personal?: boolean;
   /** The group chat's own name (null = the home's name). */
   chatName: string | null;
   /** Inbox entries this person hasn't seen yet. */
@@ -155,6 +157,8 @@ export const RENTAL_DOCS = ['lease', 'deposit', 'condition_report', 'receipt', '
 
 export interface Item {
   id: string;
+  /** Who sees it: only the creator, everyone in the home (by role), or owners and managers. */
+  visibility: 'me' | 'home' | 'managers';
   collection: Collection | null;
   docType: (typeof RENTAL_DOCS)[number] | null;
   date: string | null;
@@ -208,6 +212,8 @@ export interface Expense {
   shared: boolean;
   ownerId: string;
   canDelete: boolean;
+  /** This is someone's personal space (the Personal library), not a home. */
+  personal?: boolean;
   /** The group chat's own name (null = the home's name). */
   chatName: string | null;
   /** Inbox entries this person hasn't seen yet. */

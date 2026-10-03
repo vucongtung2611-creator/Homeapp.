@@ -4,7 +4,7 @@ import { api, type Household, type User } from './api.js';
 import { AuthScreen, CreateHomeScreen, JoinScreen, StartScreen, WelcomeScreen, pendingInvite } from './screens/auth.js';
 import { BillsScreen } from './screens/bills.js';
 import { ChatScreen } from './screens/chat.js';
-import { LibraryScreen } from './screens/library.js';
+import { LibraryTab } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
 import { InboxScreen, LogScreen } from './screens/inbox.js';
 import { CharacterAvatar } from './characters.js';
@@ -318,7 +318,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       ) : tab === 'chat' ? (
         <ChatScreen home={h} live={live} />
       ) : tab === 'library' ? (
-        <LibraryScreen home={h} live={live} />
+        <LibraryTab home={h} live={live} session={session} />
       ) : tab === 'bills' ? (
         h.me.role === 'guest' ? (
           <div class="page">
