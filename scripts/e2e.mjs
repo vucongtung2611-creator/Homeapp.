@@ -324,6 +324,17 @@ try {
   await q.getByTestId('calendar-view').getByRole('button', { name: 'Tuần' }).click();
   await q.getByTestId('calendar-week').locator('.cal-event', { hasText: 'đưa Bin đi tiêm' }).waitFor();
   await shot(q, '07e-calendar-week');
+  // The calendar in other apps: a .ics download and a secret subscription link.
+  await q.getByTestId('calendar-sync').click();
+  const [icsFile] = await Promise.all([q.waitForEvent('download'), q.getByTestId('ics-download').click()]);
+  const icsText = readFileSync(await icsFile.path(), 'utf8');
+  await expect(icsText.includes('BEGIN:VCALENDAR') && icsText.includes('đưa Bin đi tiêm'), '.ics file has the appointment');
+  await q.getByTestId('feed-make').click();
+  const feedUrl = await q.getByTestId('feed-url').inputValue();
+  await shot(q, '07e2-calendar-sync');
+  const feedText = await (await fetch(feedUrl)).text();
+  await expect(feedText.includes('đưa Bin đi tiêm'), 'the subscription link works without signing in');
+  await q.keyboard.press('Escape');
   // An adds something for the whole home today; Linh is reminded when she opens chat.
   await q.getByTestId('calendar-add').click();
   await q.getByTestId('calendar-editor').locator('input[name=title]').fill('Đi chợ cuối tuần');

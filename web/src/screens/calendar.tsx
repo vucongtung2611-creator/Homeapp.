@@ -45,6 +45,7 @@ export function CalendarScreen({ home, live }: { home: Household; live: Live }) 
   const [selected, setSelected] = useState(todayIso());
   const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<{ event?: CalendarEvent; draft?: Partial<CalendarEvent> }>();
+  const [syncing, setSyncing] = useState(false);
 
   const first = view === 'month' ? startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1)) : startOfWeek(anchor);
   const days = view === 'month' ? 42 : 7;
@@ -206,6 +207,10 @@ export function CalendarScreen({ home, live }: { home: Household; live: Live }) 
         <EmptyState art={<span class="big-emoji">📅</span>} title={t('calendar.emptyTitle')} text={canAdd ? t('calendar.emptyText') : t('calendar.guestNote')} />
       )}
 
+      <button class="btn secondary block" style={{ marginTop: 8 }} onClick={() => setSyncing(true)} data-testid="calendar-sync">
+        🔗 {t('calendarSync.open')}
+      </button>
+      {syncing && <SyncSheet home={home} onClose={() => setSyncing(false)} />}
       {canAdd && (
         <button class="fab" onClick={() => setEditing({ draft: { date: selected } })} data-testid="calendar-add">
           <Icon.plus /> {t('common.add')}
@@ -469,5 +474,90 @@ export function CalendarReminder({ home }: { home: Household }) {
         {t('calendar.dismiss')}
       </button>
     </div>
+  );
+}
+
+/** The home calendar in Google, Apple or Outlook: a one-off .ics file, or a secret link they subscribe to. */
+function SyncSheet({ home, onClose }: { home: Household; onClose: () => void }) {
+  const status = useLoad(() => api<{ active: boolean; createdAt: string | null; lastUsedAt: string | null }>('GET', `/api/households/${home.id}/calendar-feed`), [home.id]);
+  const [made, setMade] = useState<{ url: string; webcal: string }>();
+  const [busy, setBusy] = useState(false);
+  const make = async () => {
+    setBusy(true);
+    try {
+      setMade(await api<{ url: string; webcal: string }>('POST', `/api/households/${home.id}/calendar-feed`));
+    } catch (err) {
+      toastError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const off = async () => {
+    try {
+      await api('DELETE', `/api/households/${home.id}/calendar-feed`);
+      setMade(undefined);
+      toast(t('calendarSync.offDone'));
+      void status.reload(true);
+    } catch (err) {
+      toastError(err);
+    }
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(made!.url);
+      toast(t('calendarSync.copied'));
+    } catch {
+      (document.querySelector('[data-testid=feed-url]') as HTMLInputElement | null)?.select();
+    }
+  };
+  return (
+    <Sheet title={t('calendarSync.title')} onClose={onClose}>
+      <h3 class="section-title" style={{ marginTop: 4 }}>{t('calendarSync.fileTitle')}</h3>
+      <p class="muted">{t('calendarSync.fileText')}</p>
+      <a class="btn secondary block" href={`/api/households/${home.id}/calendar.ics`} download data-testid="ics-download">
+        📥 {t('calendarSync.download')}
+      </a>
+      <h3 class="section-title">{t('calendarSync.feedTitle')}</h3>
+      <p class="muted">{t('calendarSync.feedText')}</p>
+      {made ? (
+        <>
+          <input class="input" readOnly value={made.url} data-testid="feed-url" onFocus={(e) => e.currentTarget.select()} />
+          <p class="hint">⚠️ {t('calendarSync.showOnce')}</p>
+          <button class="btn block" onClick={copy}>
+            📋 {t('calendarSync.copy')}
+          </button>
+          <a class="btn secondary block" style={{ marginTop: 8 }} href={made.webcal}>
+            🍎 {t('calendarSync.openApple')}
+          </a>
+          <ul class="hint" style={{ paddingLeft: 18 }}>
+            <li>{t('calendarSync.google')}</li>
+            <li>{t('calendarSync.apple')}</li>
+          </ul>
+        </>
+      ) : status.data?.active ? (
+        <>
+          <p data-testid="feed-active">
+            ✅ {t('calendarSync.activeSince', { date: formatDate(status.data.createdAt!.slice(0, 10)) })}{' '}
+            {status.data.lastUsedAt && t('calendarSync.lastUsed', { date: formatDate(status.data.lastUsedAt.slice(0, 10)) })}
+          </p>
+          <p class="hint">{t('calendarSync.remakeHint')}</p>
+          <button class="btn block" onClick={make} disabled={busy}>
+            {busy ? <Spinner /> : t('calendarSync.remake')}
+          </button>
+        </>
+      ) : (
+        <button class="btn block" onClick={make} disabled={busy || status.loading} data-testid="feed-make">
+          {busy ? <Spinner /> : t('calendarSync.make')}
+        </button>
+      )}
+      {(made || status.data?.active) && (
+        <button class="btn block ghost danger" style={{ marginTop: 8 }} onClick={off}>
+          {t('calendarSync.off')}
+        </button>
+      )}
+      <p class="hint" style={{ marginTop: 12 }}>
+        ↔️ {t('calendarSync.oneWay')}
+      </p>
+    </Sheet>
   );
 }

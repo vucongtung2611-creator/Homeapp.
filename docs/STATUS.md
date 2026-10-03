@@ -40,6 +40,7 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 | Ảnh nhân vật | Chỗ gắn ảnh sẵn cho cả 5 nhân vật (xem `docs/CHARACTERS.md`). **Chưa có ảnh gốc nào**: James, Timothy, Ella, Nolan dùng hình nét mực tạm có chữ cái đầu, Tom dùng hình nét mực của Tom |
 | Lịch trong nhà | Tab Lịch cạnh Chat. Xem tháng và tuần; lọc theo người (mỗi người một màu), theo nhãn (ví dụ tên con, "Đối tác" khi dùng cho văn phòng) hoặc "Của tôi". Mỗi lịch hẹn có giờ bắt đầu và kết thúc, ghi chú, ai được xem (cả nhà / chủ nhà và quản lý / chỉ mình). Người thêm, chủ nhà hoặc quản lý sửa được; khách chỉ xem. Cập nhật ngay trên mọi máy |
 | Từ chat sang lịch | Tin nhắn có ngày giờ ("thứ 7 lúc 9h", "tối mai 7h", "7/10", "demain à 18h", "am Freitag um 8"…) hiện nút "📅 Thêm vào lịch nhà", mở sẵn ngày, giờ và nội dung. Nhận diện bằng quy tắc, không dùng AI |
+| Lịch nhà trong Google / Apple / Outlook | Tải file .ics (bản sao một lần), hoặc tạo link đăng ký bí mật: thêm vào Google Calendar ("Từ URL") hay Apple Calendar là lịch tự cập nhật (Google vài giờ một lần). Link chỉ hiện một lần, chỉ chứa những lịch người tạo link được xem, tạo link mới thì link cũ ngừng chạy, tắt được; rời nhà là link hết hiệu lực. Miễn phí, không cần tài khoản Google |
 | Nhắc hẹn khi mở app | Thanh nhắc lịch hôm nay và ngày mai (của mình hoặc của cả nhà); ẩn được, ẩn thì không hiện lại trong ngày |
 | Hướng dẫn lần đầu | 4 bước, dùng tốt trên điện thoại, bỏ qua được, xem lại được |
 | Ngôn ngữ | Tiếng Anh, Việt, Pháp, Đức, Hà Lan; thông báo lỗi dễ hiểu (có kiểm thử bảo đảm mọi lỗi đều có câu dịch) |
@@ -63,6 +64,7 @@ Tài liệu này giúp nói trung thực với người xem hồ sơ hoặc vide
 - Phía chủ nhà cho thuê: hồ sơ thuê nhà hiện là nền dữ liệu cho phần này; chưa có tài khoản hay màn hình cho chủ nhà cho thuê.
 - Kết nối Gmail để tự đọc hoá đơn và bưu kiện từ email.
 - Bưu kiện, dùng khi mất mạng.
+- Đồng bộ hai chiều với Google Calendar (sửa bên Google tự về MATE): cần đăng nhập Google (OAuth) và xét duyệt ứng dụng; hiện chỉ một chiều MATE → Google qua link đăng ký.
 - Nhắc lịch hẹn qua email và thông báo đẩy (cần dịch vụ gửi thư hoặc đăng ký push; hiện chỉ nhắc trong app).
 - Kết nối tài khoản thanh toán thật (ngân hàng, ví) để trả hoá đơn ngay trong app. **Không làm trong đợt này**: cần đối tác thanh toán, giấy phép và kiểm tra bảo mật; hiện app chỉ ghi nhận "đã trả".
 - Trợ lý AI thật trong nhà ("butler") hiểu câu nói tự nhiên. Hiện MATE và các nhân vật chỉ là bản thử theo lệnh đơn giản, không gọi dịch vụ AI nào (không tốn phí).

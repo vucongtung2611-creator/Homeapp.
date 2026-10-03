@@ -20,6 +20,7 @@ import {
 } from '../src/index.js';
 import { CHARACTER_IDS, DEFAULT_CHARACTER, isCharacter } from '../src/characters.js';
 import { matches, parseIntent } from './bots.js';
+import { toIcs } from '../src/integrations/ics.js';
 import { COLLECTIONS, RENTAL_DOCS } from '../src/modules/items.js';
 import { zip } from './zip.js';
 import { Auth, AuthError, RateLimiter, newInviteCode, newToken, normalizeInviteCode, sha256, type User } from './auth.js';
@@ -110,6 +111,7 @@ export async function createServer(options: ServerOptions) {
     joinFailIp: new RateLimiter(30, 15 * 60_000), // … and per IP (a shared Wi‑Fi has several people)
     loginEmail: new RateLimiter(30, 15 * 60_000), // one account tried from many places
     export: new RateLimiter(10, 60 * 60_000),
+    feed: new RateLimiter(120, 60 * 60_000), // calendar apps polling a subscription link
     message: new RateLimiter(30, 10_000),
     upload: new RateLimiter(40, 10 * 60_000),
     write: new RateLimiter(120, 60_000),
@@ -1593,6 +1595,80 @@ export async function createServer(options: ServerOptions) {
     await db.run('DELETE FROM calendar_events WHERE id = ?', existing.id);
     hub.publish(householdId, { type: 'changed', area: 'calendar' });
     return c.json({ ok: true });
+  });
+
+  // ── Calendar in other apps: .ics file and a secret subscription link ──
+  const icsFor = async (home: HomeApp, householdId: string, userId: string, role: Role) => {
+    const rows = await db.all<CalendarRow>('SELECT * FROM calendar_events WHERE household_id = ? ORDER BY date, time LIMIT 5000', householdId);
+    const name = (id: string) => home.platform.graph.getNode(id)?.label;
+    return toIcs(
+      `MATE · ${home.platform.graph.requireNode(householdId).label}`,
+      rows
+        .filter((r) => canSeeEvent(r, userId, role))
+        .map((r) => ({
+          id: r.id, title: r.title, date: r.date, time: r.time, endTime: r.end_time, note: r.note, tag: r.tag, updatedAt: r.updated_at,
+          people: (JSON.parse(r.people) as string[]).map(name).filter((n): n is string => Boolean(n)),
+        })),
+    );
+  };
+  const icsResponse = (ics: string, filename?: string) =>
+    new Response(ics, {
+      headers: {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        ...(filename ? { 'Content-Disposition': `attachment; filename="${filename}"` } : {}),
+        'Cache-Control': 'private, no-store',
+      },
+    });
+
+  app.get('/api/households/:hid/calendar.ics', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    return icsResponse(await icsFor(home, householdId, user.id, role), 'mate-calendar.ics');
+  });
+
+  /** Whether my subscription link is on (the link itself is only shown when made). */
+  app.get('/api/households/:hid/calendar-feed', async (c) => {
+    const { user, householdId } = await requireMember(c);
+    const row = await db.get<{ created_at: string; last_used_at: string | null }>(
+      'SELECT created_at, last_used_at FROM calendar_feeds WHERE household_id = ? AND user_id = ?', householdId, user.id,
+    );
+    return c.json({ active: Boolean(row), createdAt: row?.created_at ?? null, lastUsedAt: row?.last_used_at ?? null });
+  });
+
+  /** Make (or remake) my secret link; any older one stops working. */
+  app.post('/api/households/:hid/calendar-feed', async (c) => {
+    const { user, householdId } = await requireMember(c);
+    limit(limits.write, user.id);
+    const token = newToken();
+    await db.transaction(async (tx) => {
+      await tx.run('DELETE FROM calendar_feeds WHERE household_id = ? AND user_id = ?', householdId, user.id);
+      await tx.run('INSERT INTO calendar_feeds (token_hash, household_id, user_id, created_at) VALUES (?, ?, ?, ?)', sha256(token), householdId, user.id, new Date().toISOString());
+    });
+    const url = `${origin(c)}/api/feeds/${token}.ics`;
+    return c.json({ url, webcal: url.replace(/^https?:/, 'webcal:') }, 201);
+  });
+
+  app.delete('/api/households/:hid/calendar-feed', async (c) => {
+    const { user, householdId } = await requireMember(c);
+    await db.run('DELETE FROM calendar_feeds WHERE household_id = ? AND user_id = ?', householdId, user.id);
+    return c.json({ ok: true });
+  });
+
+  /**
+   * The subscription itself: no sign-in (calendar apps can't), the secret
+   * link is the key. It shows exactly what its owner may see, and stops
+   * working when they leave the home or turn the link off.
+   */
+  app.get('/api/feeds/:token', async (c) => {
+    limit(limits.feed, ip(c));
+    const token = c.req.param('token').replace(/\.ics$/, '');
+    const row = /^[A-Za-z0-9_-]{20,100}$/.test(token)
+      ? await db.get<{ household_id: string; user_id: string }>('SELECT household_id, user_id FROM calendar_feeds WHERE token_hash = ?', sha256(token))
+      : undefined;
+    const home = row ? await store.get(row.household_id) : undefined;
+    const role = row && home?.platform.acl.roleOf(row.user_id, row.household_id);
+    if (!row || !home || !role || (await guestExpired(home, row.household_id, row.user_id))) throw new HttpError(404, 'not_found');
+    await db.run('UPDATE calendar_feeds SET last_used_at = ? WHERE token_hash = ?', new Date().toISOString(), sha256(token));
+    return icsResponse(await icsFor(home, row.household_id, row.user_id, role));
   });
 
   // ── Library ──────────────────────────────────────────────────────────

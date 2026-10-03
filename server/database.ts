@@ -255,6 +255,15 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
   //    'bot:<character>:<user>' = one person and MATE or a character.
   () => `ALTER TABLE messages ADD COLUMN conversation TEXT;
    CREATE INDEX messages_conversation ON messages(household_id, conversation, seq)`,
+  // 10: secret calendar subscription links (one per person per home; only the hash is kept).
+  () => `CREATE TABLE calendar_feeds (
+     token_hash TEXT PRIMARY KEY,
+     household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     created_at TEXT NOT NULL,
+     last_used_at TEXT
+   );
+   CREATE INDEX calendar_feeds_owner ON calendar_feeds(household_id, user_id)`,
 ];
 
 async function migrate(db: Database): Promise<void> {
