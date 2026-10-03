@@ -29,6 +29,8 @@ const de: Messages = {
   language: {
     label: 'Sprache',
     choose: 'Sprache wählen',
+    later: 'Du kannst die Sprache jederzeit in den Einstellungen ändern.',
+    continue: 'Weiter',
   },
   greeting: {
     morning: ['Guten Morgen, {name} ☀️', 'Morgen, {name}! Erst mal Kaffee?', 'Aufstehen, {name} 🌤️'],
@@ -136,6 +138,10 @@ const de: Messages = {
     done: 'Los geht’s',
     progress: 'Schritt {step} von {total}',
     replay: 'Kurzanleitung noch mal zeigen',
+    calendar: { title: 'Kalender und Aufgaben', text: 'Trage Termine nur für dich (nur du siehst sie) oder für das ganze Zuhause ein. Im Reiter Aufgaben siehst du, wer was macht, und wiederkehrende Aufgaben wechseln sich ab.' },
+    settings: { title: 'Einstellungen, Einladungen und Sprache', text: 'Lade hier Personen ein, ändere deine Figur, das Design und die Sprache und sieh dir diese Anleitung jederzeit mit der ?-Taste oben noch einmal an.' },
+    help: 'Anleitung anzeigen',
+    close: 'Anleitung schließen',
   },
   accounts: {
     switch: 'Wechseln',

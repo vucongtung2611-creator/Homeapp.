@@ -70,7 +70,7 @@ export function SettingsScreen({ home, session, reloadHome }: { home: Household;
       </section>
 
       <h2 class="section-title">{t('language.label')}</h2>
-      <section class="card">
+      <section class="card" data-tour="language">
         <LanguageSwitch block />
       </section>
       <button

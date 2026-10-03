@@ -86,6 +86,24 @@ export function setLocale(code: LocaleCode): void {
   listeners.forEach((fn) => fn());
 }
 
+/** Has this person picked a language on this device (as opposed to us guessing from the browser)? */
+export function hasChosenLocale(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return true; // no storage (private mode): never trap anyone behind the picker
+  }
+}
+
+/** Pick a language and remember that the person chose it, even if it equals the guess. */
+export function chooseLocale(code: LocaleCode): void {
+  setLocale(code);
+  try {
+    localStorage.setItem(STORAGE_KEY, code);
+  } catch {}
+  listeners.forEach((fn) => fn());
+}
+
 export function onLocaleChange(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);

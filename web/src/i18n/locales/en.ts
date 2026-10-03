@@ -32,6 +32,8 @@ const en = {
   language: {
     label: 'Language',
     choose: 'Choose a language',
+    later: 'You can change the language any time in Settings.',
+    continue: 'Continue',
   },
   greeting: {
     morning: ['Good morning, {name} ☀️', 'Morning, {name}! Coffee first?', 'Rise and shine, {name} 🌤️'],
@@ -139,6 +141,10 @@ const en = {
     done: 'Let’s go',
     progress: 'Step {step} of {total}',
     replay: 'Show the quick guide again',
+    calendar: { title: 'Calendar and chores', text: 'Add appointments just for you (only you see them) or for the whole home. The Chores tab shows who does what, and repeating jobs take turns.' },
+    settings: { title: 'Settings, invites and language', text: 'Invite people from here, change your character, theme and language, and replay this guide any time with the ? button at the top.' },
+    help: 'Show the guide',
+    close: 'Close guide',
   },
   accounts: {
     switch: 'Switch',

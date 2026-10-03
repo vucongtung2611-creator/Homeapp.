@@ -113,7 +113,7 @@ export function CalendarScreen({ home, live }: { home: Household; live: Live }) 
   const peopleWithEvents = home.members.filter((m) => (data.data?.events ?? []).some((e) => e.people.includes(m.id)));
 
   const switcher = (
-    <div class="segmented three" role="group" aria-label={t('calendar.viewLabel')} data-testid="calendar-view">
+    <div class="segmented three" role="group" aria-label={t('calendar.viewLabel')} data-testid="calendar-view" data-tour="calendar-view">
       <button type="button" aria-pressed={view === 'month'} onClick={() => chooseView('month')}>
         {t('calendar.month')}
       </button>

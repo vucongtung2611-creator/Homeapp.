@@ -21,6 +21,7 @@ delete phone.defaultBrowserType;
 
 async function person(label, { tour = false } = {}) {
   const context = await browser.newContext({ ...phone, permissions: ['clipboard-read', 'clipboard-write'] });
+  await context.addInitScript(() => localStorage.setItem('homeapp:locale', 'vi'));
   const page = await context.newPage();
   if (!tour) await skipTour(page);
   page.on('console', (m) => m.type() === 'error' && problems.push(`[${label} console] ${m.text()}`));
@@ -107,10 +108,10 @@ try {
   await p.getByRole('heading', { name: 'Tạo nhà của bạn' }).waitFor();
   await p.getByLabel('Tên nhà').fill('Nhà 12 Lê Lợi');
   await p.getByRole('button', { name: 'Tạo nhà' }).click();
-  // First time in a home: a four-card guide, then the chat.
+  // First time in a home: a guided tour that jumps through each screen, then the chat.
   await p.getByTestId('tour').getByRole('heading', { name: 'Chat với cả nhà' }).waitFor();
   await shot(p, '03a-tour');
-  for (const title of ['Cất những thứ cần dùng', 'Chia hoá đơn công bằng', 'Hộp thư của nhà']) {
+  for (const title of ['Lịch và việc nhà', 'Cất những thứ cần dùng', 'Chia hoá đơn công bằng', 'Hộp thư của nhà', 'Cài đặt, lời mời và ngôn ngữ']) {
     await p.getByRole('button', { name: 'Tiếp' }).click();
     await p.getByTestId('tour').getByRole('heading', { name: title }).waitFor();
   }

@@ -29,6 +29,8 @@ const fr: Messages = {
   language: {
     label: 'Langue',
     choose: 'Choisir une langue',
+    later: 'Vous pouvez changer de langue à tout moment dans les Réglages.',
+    continue: 'Continuer',
   },
   greeting: {
     morning: ['Bonjour, {name} ☀️', 'Bien dormi, {name} ? Un café d’abord ?', 'Debout, {name} ! 🌤️'],
@@ -136,6 +138,10 @@ const fr: Messages = {
     done: 'C’est parti',
     progress: 'Étape {step} sur {total}',
     replay: 'Revoir le guide rapide',
+    calendar: { title: 'Agenda et tâches', text: 'Ajoutez des rendez-vous rien que pour vous (vous seul les voyez) ou pour toute la maison. L’onglet Tâches montre qui fait quoi, et les tâches répétées passent chacun à son tour.' },
+    settings: { title: 'Réglages, invitations et langue', text: 'Invitez des personnes ici, changez votre personnage, le thème et la langue, et revoyez ce guide à tout moment avec le bouton ? en haut.' },
+    help: 'Afficher le guide',
+    close: 'Fermer le guide',
   },
   accounts: {
     switch: 'Basculer',

@@ -523,6 +523,7 @@ export function ChatScreen({ home, live, session, conversation = 'group' }: { ho
       )}
       <form
         class="composer"
+        data-tour="composer"
         onSubmit={(e) => {
           e.preventDefault();
           send();

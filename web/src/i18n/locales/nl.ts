@@ -29,6 +29,8 @@ const nl: Messages = {
   language: {
     label: 'Taal',
     choose: 'Kies een taal',
+    later: 'Je kunt de taal altijd wijzigen in Instellingen.',
+    continue: 'Doorgaan',
   },
   greeting: {
     morning: ['Goedemorgen, {name} ☀️', 'Morgen, {name}! Eerst koffie?', 'Opstaan, {name} 🌤️'],
@@ -136,6 +138,10 @@ const nl: Messages = {
     done: 'Aan de slag',
     progress: 'Stap {step} van {total}',
     replay: 'Snelle uitleg opnieuw tonen',
+    calendar: { title: 'Agenda en klusjes', text: 'Zet afspraken alleen voor jezelf (alleen jij ziet ze) of voor het hele huis. Het tabblad Klusjes laat zien wie wat doet, en terugkerende klusjes gaan om de beurt.' },
+    settings: { title: 'Instellingen, uitnodigingen en taal', text: 'Nodig hier mensen uit, verander je personage, thema en taal, en bekijk deze gids altijd opnieuw met de ?-knop bovenaan.' },
+    help: 'Gids tonen',
+    close: 'Gids sluiten',
   },
   accounts: {
     switch: 'Wisselen',

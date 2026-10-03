@@ -9,11 +9,12 @@ import { LibraryTab } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
 import { InboxScreen, LogScreen } from './screens/inbox.js';
 import { CharacterAvatar } from './characters.js';
-import { onLocaleChange, t, tPick } from './i18n/index.js';
+import { chooseLocale, getLocale, hasChosenLocale, onLocaleChange, t, tPick } from './i18n/index.js';
+import { LanguageGate } from './language.js';
 import { ErrorState, Icon, Skeleton, Spinner, Toasts, toast, useLoad } from './ui.js';
 import { partOfDay } from './util.js';
 
-import { Tour, tourDone } from './tour.js';
+import { Tour, replayTour, tourDone } from './tour.js';
 import { applyTheme } from './theme.js';
 import { bindRouter, navigate, type Listener, type Live, type Session } from './router.js';
 
@@ -301,6 +302,11 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
             )}
           </button>
         )}
+        {userId && (
+          <button class="icon-btn" aria-label={t('tour.help')} data-tour="help" data-testid="tour-help" onClick={() => replayTour(userId)}>
+            <span aria-hidden="true" class="help-mark">?</span>
+          </button>
+        )}
         {tab !== 'settings' && (
           <button class="icon-btn" aria-label={t('tabs.settingsAria')} onClick={() => navigate(`/h/${householdId}/settings`)}>
             <Icon.gear />
@@ -340,7 +346,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       ) : (
         <SettingsScreen home={h} session={session} reloadHome={() => home.reload(true)} />
       )}
-      {touring && h && <Tour userId={userId} guest={h.me.role === 'guest'} onDone={() => setTouring(false)} />}
+      {touring && h && <Tour userId={userId} householdId={householdId} guest={h.me.role === 'guest'} onDone={() => setTouring(false)} />}
       <nav class="tabbar" aria-label={t('tabs.nav')}>
         <TabLink to={`/h/${householdId}/chat`} active={tab === 'chat'} label={t('tabs.chat')} icon={<Icon.chat />} dot={unread} />
         <TabLink to={`/h/${householdId}/calendar`} active={tab === 'calendar'} label={t('tabs.calendar')} icon={<Icon.calendar />} />
@@ -355,6 +361,7 @@ function TabLink(props: { to: string; active: boolean; label: string; icon: prea
   return (
     <a
       class="tab"
+      data-tour={`tab-${props.to.split('/').pop()}`}
       href={props.to}
       aria-current={props.active ? 'page' : undefined}
       onClick={(e) => {
@@ -373,10 +380,11 @@ const greetingSeed = Math.floor(Math.random() * 1000);
 
 function Root() {
   const [, setTick] = useState(0);
+  const [chosen, setChosen] = useState(hasChosenLocale);
   useEffect(() => onLocaleChange(() => setTick((n) => n + 1)), []);
   return (
     <>
-      <App />
+      {chosen ? <App /> : <LanguageGate onDone={() => (chooseLocale(getLocale()), setChosen(true))} />}
       <Toasts />
     </>
   );

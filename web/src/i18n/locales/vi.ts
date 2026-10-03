@@ -29,6 +29,8 @@ const vi: Messages = {
   language: {
     label: 'Ngôn ngữ',
     choose: 'Chọn ngôn ngữ',
+    later: 'Bạn có thể đổi ngôn ngữ bất cứ lúc nào trong Cài đặt.',
+    continue: 'Tiếp tục',
   },
   greeting: {
     morning: ['Chào buổi sáng, {name} ☀️', 'Sáng rồi {name} ơi, cà phê chưa?', 'Dậy thôi {name} 🌤️'],
@@ -136,6 +138,10 @@ const vi: Messages = {
     done: 'Bắt đầu',
     progress: 'Bước {step}/{total}',
     replay: 'Xem lại hướng dẫn nhanh',
+    calendar: { title: 'Lịch và việc nhà', text: 'Thêm lịch hẹn riêng cho bạn (chỉ bạn thấy) hoặc cho cả nhà. Tab Việc nhà cho biết ai làm gì, và việc lặp lại sẽ lần lượt đến từng người.' },
+    settings: { title: 'Cài đặt, lời mời và ngôn ngữ', text: 'Mời người vào nhà ở đây, đổi nhân vật, giao diện và ngôn ngữ. Bấm nút ? ở trên cùng để xem lại hướng dẫn bất cứ lúc nào.' },
+    help: 'Xem hướng dẫn',
+    close: 'Đóng hướng dẫn',
   },
   accounts: {
     switch: 'Chuyển',
