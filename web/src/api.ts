@@ -151,6 +151,26 @@ export interface Message {
   createdAt: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:mm, or null for all day */
+  time: string | null;
+  endTime: string | null;
+  note: string;
+  /** Member ids it's for; empty = the whole home. */
+  people: string[];
+  /** A free label, e.g. a child's name or "Partner". */
+  tag: string | null;
+  visibility: 'home' | 'managers' | 'me';
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  canEdit: boolean;
+}
+
 export const COLLECTIONS = ['recipes', 'wishlist', 'shopping', 'contacts', 'house_rules', 'rental'] as const;
 export type Collection = (typeof COLLECTIONS)[number];
 export const RENTAL_DOCS = ['lease', 'deposit', 'condition_report', 'receipt', 'repair', 'other'] as const;

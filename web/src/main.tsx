@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { api, type Household, type User } from './api.js';
 import { AuthScreen, CreateHomeScreen, JoinScreen, StartScreen, WelcomeScreen, pendingInvite } from './screens/auth.js';
 import { BillsScreen } from './screens/bills.js';
+import { CalendarReminder, CalendarScreen } from './screens/calendar.js';
 import { ChatScreen } from './screens/chat.js';
 import { LibraryTab } from './screens/library.js';
 import { SettingsScreen } from './screens/settings.js';
@@ -111,7 +112,7 @@ function Redirect({ to }: { to: string }) {
 }
 
 // ── Household shell with bottom tabs ─────────────────────────────────
-export type Tab = 'chat' | 'library' | 'bills' | 'settings' | 'inbox' | 'log';
+export type Tab = 'chat' | 'calendar' | 'library' | 'bills' | 'settings' | 'inbox' | 'log';
 
 
 /**
@@ -264,7 +265,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
     );
   }
   const h = home.data;
-  const titles: Record<Tab, string> = { chat: t('tabs.chat'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings'), inbox: t('inbox.title'), log: t('log.title') };
+  const titles: Record<Tab, string> = { chat: t('tabs.chat'), calendar: t('tabs.calendar'), library: t('tabs.library'), bills: t('tabs.bills'), settings: t('tabs.settings'), inbox: t('inbox.title'), log: t('log.title') };
   const firstName = session.user?.name.split(/\s+/)[0] ?? '';
   const subtitle = tab === 'chat' && h ? tPick(`greeting.${partOfDay()}`, greetingSeed, { name: firstName }) : (h?.name ?? ' ');
 
@@ -311,12 +312,15 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       ) : (
         !live.connected && <div class="banner" style={{ margin: '0 20px 10px' }}>{t('live.reconnecting')}</div>
       )}
+      {h && tab !== 'calendar' && <CalendarReminder home={h} />}
       {!h ? (
         <div class="page">
           <Skeleton />
         </div>
       ) : tab === 'chat' ? (
         <ChatScreen home={h} live={live} />
+      ) : tab === 'calendar' ? (
+        <CalendarScreen home={h} live={live} />
       ) : tab === 'library' ? (
         <LibraryTab home={h} live={live} session={session} />
       ) : tab === 'bills' ? (
@@ -337,6 +341,7 @@ function HomeShell(props: { householdId: string; tab: Tab; session: Session }) {
       {touring && h && <Tour userId={userId} guest={h.me.role === 'guest'} onDone={() => setTouring(false)} />}
       <nav class="tabbar" aria-label={t('tabs.nav')}>
         <TabLink to={`/h/${householdId}/chat`} active={tab === 'chat'} label={t('tabs.chat')} icon={<Icon.chat />} dot={unread} />
+        <TabLink to={`/h/${householdId}/calendar`} active={tab === 'calendar'} label={t('tabs.calendar')} icon={<Icon.calendar />} />
         <TabLink to={`/h/${householdId}/library`} active={tab === 'library'} label={t('tabs.library')} icon={<Icon.library />} />
         {h?.me.role !== 'guest' && <TabLink to={`/h/${householdId}/bills`} active={tab === 'bills'} label={t('tabs.bills')} icon={<Icon.bill />} />}
       </nav>

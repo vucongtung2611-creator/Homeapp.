@@ -298,6 +298,50 @@ try {
   await shot(q, '07-chat-an');
   step('photo message delivered and visible to An');
 
+  // ── Home calendar: from a chat message, month/week, filters, reminder ──
+  await q.getByLabel('Tin nhắn').fill('Thứ 7 lúc 9h đưa Bin đi tiêm nha');
+  await q.getByRole('button', { name: 'Gửi', exact: true }).click();
+  const chip = p.locator('.msg', { hasText: 'Thứ 7 lúc 9h đưa Bin đi tiêm nha' }).getByTestId('add-to-calendar');
+  await chip.waitFor({ timeout: 5000 });
+  await shot(p, '07b-chat-calendar-chip');
+  await chip.click();
+  const editor = p.getByTestId('calendar-editor');
+  await editor.waitFor();
+  await expect((await editor.locator('input[name=title]').inputValue()).includes('đưa Bin đi tiêm'), 'title taken from the message');
+  await expect((await editor.locator('input[name=time]').inputValue()) === '09:00', 'time taken from the message');
+  await editor.getByRole('button', { name: 'An', exact: false }).click();
+  await editor.locator('input[name=tag]').fill('Bin');
+  await shot(p, '07c-calendar-editor');
+  await editor.getByRole('button', { name: 'Lưu', exact: true }).click();
+  await p.getByText('Đã thêm vào lịch nhà').waitFor();
+  await p.locator('.cal-event', { hasText: 'đưa Bin đi tiêm' }).waitFor();
+  await shot(p, '07d-calendar-month');
+  // An sees it live, filters by the label, and switches to the week view.
+  await q.getByRole('link', { name: 'Lịch' }).click();
+  await q.getByTestId('calendar-month').waitFor();
+  await q.getByTestId('calendar-filter').getByRole('button', { name: '🏷️ Bin' }).waitFor({ timeout: 5000 });
+  await q.getByTestId('calendar-filter').getByRole('button', { name: '🏷️ Bin' }).click();
+  await q.getByTestId('calendar-view').getByRole('button', { name: 'Tuần' }).click();
+  await q.getByTestId('calendar-week').locator('.cal-event', { hasText: 'đưa Bin đi tiêm' }).waitFor();
+  await shot(q, '07e-calendar-week');
+  // An adds something for the whole home today; Linh is reminded when she opens chat.
+  await q.getByTestId('calendar-add').click();
+  await q.getByTestId('calendar-editor').locator('input[name=title]').fill('Đi chợ cuối tuần');
+  await q.getByTestId('calendar-editor').locator('input[name=date]').fill(await q.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }));
+  await q.getByTestId('calendar-editor').locator('input[name=time]').fill('17:30');
+  await q.getByTestId('calendar-editor').getByRole('button', { name: 'Lưu', exact: true }).click();
+  await q.getByText('Đã thêm vào lịch nhà').waitFor();
+  await p.getByRole('link', { name: 'Chat' }).click();
+  await p.getByTestId('calendar-reminder').getByText('Đi chợ cuối tuần').waitFor({ timeout: 5000 });
+  await p.evaluate(() => document.scrollingElement.scrollTo(0, 1e6));
+  await shot(p, '07f-calendar-reminder');
+  await p.getByTestId('calendar-reminder').getByRole('button', { name: 'Ẩn' }).click();
+  await p.reload();
+  await p.getByLabel('Tin nhắn').waitFor();
+  await expect((await p.getByTestId('calendar-reminder').count()) === 0, 'a dismissed reminder stays hidden today');
+  await q.getByRole('link', { name: 'Chat' }).click();
+  step('calendar: "add to home calendar" from a chat message (time and text filled in), month and week views, filter by label, live on both phones, reminder on opening');
+
   // ── 5. Library ───────────────────────────────────────────────────────
   await p.getByRole('link', { name: 'Thư viện' }).click();
   await p.getByText('Wi-Fi nhà mình').waitFor();

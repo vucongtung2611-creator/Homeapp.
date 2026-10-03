@@ -9,6 +9,18 @@ import { RoomArt } from '../illustrations.js';
 import { EmptyState, ErrorState, Icon, Lightbox, Skeleton, Spinner, toast, toastError } from '../ui.js';
 import { errorText } from '../util.js';
 import { EMOJI, STICKERS, Sticker } from '../stickers.js';
+import { detectWhen } from '../../../src/integrations/when.js';
+import { navigate } from '../router.js';
+import { todayIso } from '../util.js';
+
+/** A message naming an upcoming day ("tối mai 7h", "7/10"…) offers to put it on the home calendar. */
+function calendarHint(m: Message): { date: string; time?: string } | undefined {
+  if (!m.text || m.system || m.sticker || m.text.length > 500) return undefined;
+  const sent = new Date(m.createdAt);
+  if (Date.now() - sent.getTime() > 14 * 86_400_000) return undefined;
+  const when = detectWhen(m.text, sent);
+  return when && when.date >= todayIso() ? when : undefined;
+}
 
 /** System messages arrive as a key + params and are rendered in the reader's language. */
 function systemText(system: NonNullable<Message['system']>): string {
@@ -259,6 +271,16 @@ export function ChatScreen({ home, live }: { home: Household; live: Live }) {
                         {src && <img src={src} alt={t('chat.photoAlt')} loading="lazy" onClick={() => setLightbox(src)} />}
                         {m.text && (src ? <div class="caption">{m.text}</div> : m.text)}
                       </div>
+                      {!m.pending && !m.failed && home.me.role !== 'guest' && (() => {
+                        const when = calendarHint(m);
+                        if (!when) return null;
+                        const q = new URLSearchParams({ new: '1', date: when.date, time: when.time ?? '', title: m.text.replace(/\s+/g, ' ').slice(0, 120) });
+                        return (
+                          <button class="cal-chip" data-testid="add-to-calendar" onClick={() => navigate(`/h/${home.id}/calendar?${q}`)}>
+                            📅 {t('calendar.fromChat')}
+                          </button>
+                        );
+                      })()}
                       {m.failed ? (
                         <span>
                           <button class="retry" onClick={() => m.retry?.()}>

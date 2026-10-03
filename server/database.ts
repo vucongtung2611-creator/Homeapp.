@@ -234,6 +234,23 @@ const MIGRATIONS: ((d: Dialect) => string)[] = [
   // 7: everyone's own private space for the Personal library (a hidden, one-person "home").
   () => `ALTER TABLE households ADD COLUMN personal_of TEXT;
    CREATE INDEX households_personal ON households(personal_of)`,
+  // 8: the home calendar. people = JSON list of member ids it's for ([] = the whole home).
+  () => `CREATE TABLE calendar_events (
+     id TEXT PRIMARY KEY,
+     household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+     title TEXT NOT NULL,
+     date TEXT NOT NULL,
+     time TEXT,
+     end_time TEXT,
+     note TEXT NOT NULL DEFAULT '',
+     people TEXT NOT NULL DEFAULT '[]',
+     tag TEXT,
+     visibility TEXT NOT NULL DEFAULT 'home',
+     created_by TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE INDEX calendar_events_household ON calendar_events(household_id, date)`,
 ];
 
 async function migrate(db: Database): Promise<void> {

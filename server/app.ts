@@ -455,7 +455,8 @@ export async function createServer(options: ServerOptions) {
     if (home.platform.acl.members(householdId).length !== 1 || hasRealContent(home, householdId)) return false;
     const messages = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM messages WHERE household_id = ? AND user_id IS NOT NULL', householdId);
     const uploads = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM files WHERE household_id = ?', householdId);
-    return Number(messages?.n) === 0 && Number(uploads?.n) === 0;
+    const events = await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM calendar_events WHERE household_id = ?', householdId);
+    return Number(messages?.n) === 0 && Number(uploads?.n) === 0 && Number(events?.n) === 0;
   };
 
   app.delete('/api/households/:hid', async (c) => {
@@ -1081,6 +1082,13 @@ export async function createServer(options: ServerOptions) {
         updatedAt: i.updatedAt.toISOString(),
         files: i.props.attachments.map((a) => pathOf(a.fileId)).filter(Boolean),
       })),
+      calendar: (await db.all<CalendarRow>('SELECT * FROM calendar_events WHERE household_id = ? ORDER BY date, time', householdId))
+        .filter((r) => canSeeEvent(r, user.id, 'owner'))
+        .map((r) => ({
+          title: r.title, date: r.date, time: r.time, endTime: r.end_time, note: r.note, tag: r.tag, visibility: r.visibility,
+          for: (JSON.parse(r.people) as string[]).map((id) => home.platform.graph.getNode(id)?.label ?? null).filter(Boolean),
+          by: home.platform.graph.getNode(r.created_by)?.label ?? null,
+        })),
       money: await moneyView(home, user.id, householdId),
       log: log.map((r) => ({ at: r.created_at, ...eventDto(r, user.id, '\uffff'), id: undefined, unread: undefined, actorIsMe: undefined, subjectIsMe: undefined })),
     };
@@ -1284,6 +1292,133 @@ export async function createServer(options: ServerOptions) {
       }
       unsubscribe();
     });
+  });
+
+  // ── Home calendar ────────────────────────────────────────────────────
+  interface CalendarRow {
+    id: string;
+    household_id: string;
+    title: string;
+    date: string;
+    time: string | null;
+    end_time: string | null;
+    note: string;
+    people: string;
+    tag: string | null;
+    visibility: string;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+  }
+  const CAL_VISIBILITY = ['home', 'managers', 'me'] as const;
+  const hhmm = (v: unknown, field: string) => {
+    if (v === undefined || v === null || v === '') return null;
+    if (typeof v !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) throw bad(`${field}_invalid`);
+    return v;
+  };
+  /** Who sees an appointment: the whole home, owners and managers, or only whoever added it. */
+  const canSeeEvent = (row: CalendarRow, userId: string, role: Role) =>
+    row.visibility === 'me' ? row.created_by === userId : row.visibility === 'managers' ? row.created_by === userId || MANAGER_ROLES.includes(role) : true;
+  const canEditEvent = (row: CalendarRow, userId: string, role: Role) =>
+    row.created_by === userId || (row.visibility !== 'me' && MANAGER_ROLES.includes(role));
+  const calendarDto = (home: HomeApp, row: CalendarRow, userId: string, role: Role) => ({
+    id: row.id,
+    title: row.title,
+    date: row.date,
+    time: row.time,
+    endTime: row.end_time,
+    note: row.note,
+    people: (JSON.parse(row.people) as string[]).filter((id) => home.platform.graph.getNode(id)),
+    tag: row.tag,
+    visibility: row.visibility as (typeof CAL_VISIBILITY)[number],
+    createdBy: row.created_by,
+    createdByName: home.platform.graph.getNode(row.created_by)?.label ?? '',
+    createdAt: row.created_at,
+    canEdit: canEditEvent(row, userId, role),
+  });
+  /** Fields of an appointment from a request; `existing` keeps what isn't sent. */
+  const calendarFields = (home: HomeApp, householdId: string, data: Record<string, unknown>, existing?: CalendarRow) => {
+    const title = data.title === undefined && existing ? existing.title : str(data.title, { max: 200, field: 'title', required: true })!;
+    const date = data.date === undefined && existing ? existing.date : isoDate(data.date, 'date');
+    if (!date) throw bad('date_required');
+    const time = data.time === undefined && existing ? existing.time : hhmm(data.time, 'time');
+    const endTime = data.endTime === undefined && existing ? existing.end_time : hhmm(data.endTime, 'endTime');
+    if (endTime && (!time || endTime <= time)) throw bad('endTime_invalid');
+    const note = data.note === undefined && existing ? existing.note : (str(data.note, { max: 2000, field: 'note' }) ?? '');
+    const memberIds = new Set(home.platform.acl.members(householdId).map((m) => m.userId));
+    const people = data.people === undefined && existing ? (JSON.parse(existing.people) as string[]) : ids(data.people, 'people', 50);
+    if (people.some((id) => !memberIds.has(id))) throw bad('people_invalid');
+    const tag = data.tag === undefined && existing ? existing.tag : (str(data.tag, { max: 40, field: 'tag' }) ?? null);
+    const visibility =
+      data.visibility === undefined && existing ? existing.visibility : oneOf(data.visibility, CAL_VISIBILITY, 'visibility', 'home');
+    return { title, date, time, endTime, note, people, tag, visibility };
+  };
+  const findEvent = async (householdId: string, id: string, userId: string, role: Role) => {
+    const row = await db.get<CalendarRow>('SELECT * FROM calendar_events WHERE id = ? AND household_id = ?', id, householdId);
+    if (!row || !canSeeEvent(row, userId, role)) throw new HttpError(404, 'not_found');
+    return row;
+  };
+
+  /** Appointments between two dates (inclusive), newest data each time. */
+  app.get('/api/households/:hid/calendar', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    const from = isoDate(c.req.query('from'), 'from') ?? '0000-01-01';
+    const to = isoDate(c.req.query('to'), 'to') ?? '9999-12-31';
+    const rows = await db.all<CalendarRow>(
+      'SELECT * FROM calendar_events WHERE household_id = ? AND date >= ? AND date <= ? ORDER BY date, time, created_at LIMIT 1000',
+      householdId, from, to,
+    );
+    const tagsRow = await db.all<{ tag: string }>('SELECT DISTINCT tag FROM calendar_events WHERE household_id = ? AND tag IS NOT NULL', householdId);
+    return c.json({
+      events: rows.filter((r) => canSeeEvent(r, user.id, role)).map((r) => calendarDto(home, r, user.id, role)),
+      tags: tagsRow.map((r) => r.tag).sort((a, b) => a.localeCompare(b)),
+      canAdd: role !== 'guest',
+    });
+  });
+
+  app.post('/api/households/:hid/calendar', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    if (role === 'guest') throw new HttpError(403, 'forbidden');
+    limit(limits.write, user.id);
+    const f = calendarFields(home, householdId, await body(c));
+    const now = new Date().toISOString();
+    const row: CalendarRow = {
+      id: `cal_${randomUUID()}`, household_id: householdId, title: f.title, date: f.date, time: f.time, end_time: f.endTime, note: f.note,
+      people: JSON.stringify(f.people), tag: f.tag, visibility: f.visibility, created_by: user.id, created_at: now, updated_at: now,
+    };
+    await db.run(
+      'INSERT INTO calendar_events (id, household_id, title, date, time, end_time, note, people, tag, visibility, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      row.id, row.household_id, row.title, row.date, row.time, row.end_time, row.note, row.people, row.tag, row.visibility, row.created_by, row.created_at, row.updated_at,
+    );
+    hub.publish(householdId, { type: 'changed', area: 'calendar' });
+    return c.json(calendarDto(home, row, user.id, role), 201);
+  });
+
+  app.patch('/api/households/:hid/calendar/:id', async (c) => {
+    const { user, householdId, home, role } = await requireMember(c);
+    limit(limits.write, user.id);
+    const existing = await findEvent(householdId, c.req.param('id'), user.id, role);
+    if (!canEditEvent(existing, user.id, role)) throw new HttpError(403, 'forbidden');
+    const data = await body(c);
+    // Only whoever added it decides who may see it.
+    if (data.visibility !== undefined && existing.created_by !== user.id) throw new HttpError(403, 'forbidden');
+    const f = calendarFields(home, householdId, data, existing);
+    const row: CalendarRow = { ...existing, title: f.title, date: f.date, time: f.time, end_time: f.endTime, note: f.note, people: JSON.stringify(f.people), tag: f.tag, visibility: f.visibility, updated_at: new Date().toISOString() };
+    await db.run(
+      'UPDATE calendar_events SET title = ?, date = ?, time = ?, end_time = ?, note = ?, people = ?, tag = ?, visibility = ?, updated_at = ? WHERE id = ?',
+      row.title, row.date, row.time, row.end_time, row.note, row.people, row.tag, row.visibility, row.updated_at, row.id,
+    );
+    hub.publish(householdId, { type: 'changed', area: 'calendar' });
+    return c.json(calendarDto(home, row, user.id, role));
+  });
+
+  app.delete('/api/households/:hid/calendar/:id', async (c) => {
+    const { user, householdId, role } = await requireMember(c);
+    const existing = await findEvent(householdId, c.req.param('id'), user.id, role);
+    if (!canEditEvent(existing, user.id, role)) throw new HttpError(403, 'forbidden');
+    await db.run('DELETE FROM calendar_events WHERE id = ?', existing.id);
+    hub.publish(householdId, { type: 'changed', area: 'calendar' });
+    return c.json({ ok: true });
   });
 
   // ── Library ──────────────────────────────────────────────────────────
