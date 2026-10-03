@@ -56,9 +56,7 @@ export function CharacterAvatar(props: { id?: string; size?: number; title?: str
         ) : c.color === null ? (
           <TomSketch />
         ) : (
-          <span class="placeholder" style={{ background: c.color, fontSize: Math.round(size * 0.42) }}>
-            {t(`characters.${c.id}.initial` as MessageKey)}
-          </span>
+          <CharacterSketch id={c.id} color={c.color} initial={t(`characters.${c.id}.initial` as MessageKey)} showInitial={size >= 34} />
         )}
       </span>
     </span>
@@ -85,6 +83,64 @@ function TomSketch() {
         <path d="M78 99V84" />
         <path d="M78 84c0-5 6-5 6 0v4" />
       </g>
+    </svg>
+  );
+}
+
+/**
+ * A stand-in drawing until a character's artwork arrives: the same ink-line
+ * style as Tom, their own colour, one telling detail each (James's glasses
+ * and beard, Timothy's beret, Ella's bun, Nolan's cap) and their initial in
+ * a monogram on the shirt. Eyes blink and the hand waves like the real frames will.
+ */
+function CharacterSketch({ id, color, initial, showInitial }: { id: string; color: string; initial: string; showInitial: boolean }) {
+  return (
+    <svg class="tom-sketch char-sketch" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="50" cy="50" r="50" fill={color} opacity="0.18" stroke="none" />
+      {id === 'ella' && <path d="M28 46c-4 18 0 32 6 38M72 46c4 18 0 32-6 38" />}
+      <path d="M22 99c2-14 13-22 28-22s26 8 28 22" fill={color} />
+      <circle cx="50" cy="44" r={id === 'nolan' ? 21 : 23} fill="var(--surface)" />
+      {id === 'james' && (
+        <>
+          <path d="M30 38c2-12 8-16 12-17M70 38c-2-12-8-16-12-17" />
+          <path d="M37 58c4 9 22 9 26 0" fill="var(--surface)" />
+          <circle cx="42" cy="44" r="6" />
+          <circle cx="58" cy="44" r="6" />
+          <path d="M48 44h4" />
+        </>
+      )}
+      {id === 'timothy' && (
+        <>
+          <ellipse cx="48" cy="22" rx="20" ry="7" fill={color} />
+          <path d="M48 15v-4" />
+        </>
+      )}
+      {id === 'ella' && (
+        <>
+          <circle cx="50" cy="16" r="8" fill={color} />
+          <path d="M29 40c4-14 14-19 21-19s17 5 21 19" />
+        </>
+      )}
+      {id === 'nolan' && (
+        <>
+          <path d="M30 34c2-11 10-15 20-15s18 4 20 15z" fill={color} />
+          <path d="M66 34h14" />
+        </>
+      )}
+      <g class="eyes">
+        <ellipse cx="42" cy="44" rx="2.6" ry="3.4" fill="currentColor" stroke="none" />
+        <ellipse cx="58" cy="44" rx="2.6" ry="3.4" fill="currentColor" stroke="none" />
+      </g>
+      <path d={id === 'james' ? 'M45 54c3 2 7 2 10 0' : 'M43 54c4 4 10 4 14 0'} />
+      <g class="hand">
+        <path d="M78 99V84" />
+        <path d="M78 84c0-5 6-5 6 0v4" />
+      </g>
+      {showInitial && (
+        <text class="initial" x="50" y="96" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" stroke="none">
+          {initial}
+        </text>
+      )}
     </svg>
   );
 }
